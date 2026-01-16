@@ -1,7 +1,7 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-FIREBASE_KEY_PATH = "../serviceAccountKey.json"
+FIREBASE_KEY_PATH = "D:/Web Page/Portfolio/silentshield/backend/serviceAccountKey.json"
 
 cred = credentials.Certificate(FIREBASE_KEY_PATH)
 
