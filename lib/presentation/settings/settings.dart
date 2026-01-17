@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../services/supabase_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../routes/app_routes.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -24,9 +24,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
-    final user = prefs.getString('current_user');
+    final user = FirebaseAuth.instance.currentUser;
+
     setState(() {
-      _email = user;
+      _email = user?.email;
       _motion = prefs.getBool('motion') ?? true;
       _audio = prefs.getBool('audio') ?? true;
       _voiceShield = prefs.getBool('voiceShield') ?? true;
@@ -38,24 +39,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.setBool('motion', _motion);
     await prefs.setBool('audio', _audio);
     await prefs.setBool('voiceShield', _voiceShield);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Settings saved (local).')));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Settings saved')),
+    );
   }
 
   Future<void> _logout() async {
+    // 🔹 Firebase logout
+    await FirebaseAuth.instance.signOut();
+
+    // 🔹 Clear local session
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('current_user');
-    try {
-      if (SupabaseService.supabaseUrl.isNotEmpty &&
-          SupabaseService.supabaseAnonKey.isNotEmpty) {
-        await SupabaseService.instance.client.auth.signOut();
-      }
-    } catch (_) {}
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Logged out')));
-    Navigator.of(context).pushReplacementNamed(AppRoutes.authentication);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Logged out')),
+    );
+
+    Navigator.of(context).pushReplacementNamed(
+      AppRoutes.authentication,
+    );
   }
 
   @override
@@ -98,7 +102,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ListTile(
               title: const Text('Change Password'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.of(context).pushNamed('/reset-password'),
+              onTap: () =>
+                  Navigator.of(context).pushNamed('/reset-password'),
             ),
             ListTile(
               title: const Text('Logout'),

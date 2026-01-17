@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../services/supabase_service.dart';
-import '../../services/local_user_service.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -15,50 +14,51 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+
   bool _isLoading = false;
 
   Future<void> _handleRegister() async {
+    // ✅ Check form
     if (!_formKey.currentState!.validate()) return;
+
     setState(() => _isLoading = true);
 
     final email = _emailCtrl.text.trim();
-    final password = _passwordCtrl.text;
+    final password = _passwordCtrl.text.trim();
 
     try {
-      // Try Supabase sign up if initialized
-      if (SupabaseService.supabaseUrl.isNotEmpty &&
-          SupabaseService.supabaseAnonKey.isNotEmpty) {
-        final res = await SupabaseService.instance.client.auth.signUp(
-          email: email,
-          password: password,
-        );
-        if (res.user != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Registration successful — check your email for confirmation.',
-              ),
-            ),
-          );
-          Navigator.of(context).pop();
-          return;
-        }
-      }
+      // ✅ Firebase Create Account
+      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
 
-      // Fallback: persist in local user store and auto-login
-      await LocalUserService.addUser(email, password);
+      // ✅ Save session locally (optional, but matches your app flow)
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('current_user', email);
+
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created and signed in.')),
+        const SnackBar(
+          content: Text('Account created successfully'),
+        ),
       );
+
+      // ✅ Navigate to Home
       Navigator.of(context).pushReplacementNamed('/home-dashboard');
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Registration failed: $e')));
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message ?? 'Registration failed'),
+        ),
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -73,44 +73,79 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Account')),
+      appBar: AppBar(
+        title: const Text('Create Account'),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
           child: Column(
             children: [
+              /// Email
               TextFormField(
                 controller: _emailCtrl,
-                decoration: const InputDecoration(labelText: 'Email'),
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                ),
                 keyboardType: TextInputType.emailAddress,
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Enter email' : null,
+                validator: (v) {
+                  if (v == null || v.isEmpty) {
+                    return 'Enter email';
+                  }
+                  return null;
+                },
               ),
+
               const SizedBox(height: 12),
+
+              /// Password
               TextFormField(
                 controller: _passwordCtrl,
-                decoration: const InputDecoration(labelText: 'Password'),
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                ),
                 obscureText: true,
-                validator: (v) =>
-                    (v == null || v.length < 6) ? '6+ chars required' : null,
+                validator: (v) {
+                  if (v == null || v.length < 6) {
+                    return 'Password must be at least 6 characters';
+                  }
+                  return null;
+                },
               ),
+
               const SizedBox(height: 12),
+
+              /// Confirm Password
               TextFormField(
                 controller: _confirmCtrl,
                 decoration: const InputDecoration(
                   labelText: 'Confirm Password',
                 ),
                 obscureText: true,
-                validator: (v) =>
-                    v != _passwordCtrl.text ? 'Passwords do not match' : null,
+                validator: (v) {
+                  if (v != _passwordCtrl.text) {
+                    return 'Passwords do not match';
+                  }
+                  return null;
+                },
               ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _isLoading ? null : _handleRegister,
-                child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text('Create Account'),
+
+              const SizedBox(height: 24),
+
+              /// Create Account Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _handleRegister,
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Create Account'),
+                ),
               ),
             ],
           ),

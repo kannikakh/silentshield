@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sizer/sizer.dart';
-
+import '../../../services/sos_service.dart';
 import '../../../core/app_export.dart';
 
 class SOSButtonWidget extends StatefulWidget {
   final bool isActive;
-  final VoidCallback onLongPress;
   final VoidCallback onSwipeUp;
 
   const SOSButtonWidget({
     super.key,
     required this.isActive,
-    required this.onLongPress,
     required this.onSwipeUp,
   });
 
@@ -24,15 +22,19 @@ class _SOSButtonWidgetState extends State<SOSButtonWidget>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+
   bool _isLongPressing = false;
   double _longPressProgress = 0.0;
+
+  final SosService _sosService = SosService();
 
   @override
   void initState() {
     super.initState();
+
     _pulseController = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1500),
     );
 
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
@@ -45,7 +47,7 @@ class _SOSButtonWidgetState extends State<SOSButtonWidget>
   }
 
   @override
-  void didUpdateWidget(SOSButtonWidget oldWidget) {
+  void didUpdateWidget(covariant SOSButtonWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !_pulseController.isAnimating) {
       _pulseController.repeat(reverse: true);
@@ -60,36 +62,56 @@ class _SOSButtonWidgetState extends State<SOSButtonWidget>
     super.dispose();
   }
 
+  // 🔴 Start long press
   void _handleLongPressStart(LongPressStartDetails details) {
-    setState(() => _isLongPressing = true);
-    HapticFeedback.mediumImpact();
-
-    Future.delayed(Duration(milliseconds: 100), () {
-      if (_isLongPressing) {
-        _updateProgress();
-      }
+    setState(() {
+      _isLongPressing = true;
+      _longPressProgress = 0.0;
     });
+    _updateProgress();
   }
 
+  // 🔄 Progress animation
   void _updateProgress() {
     if (!_isLongPressing) return;
 
     setState(() {
       _longPressProgress += 0.05;
-      if (_longPressProgress >= 1.0) {
-        _longPressProgress = 1.0;
-        HapticFeedback.heavyImpact();
-        widget.onLongPress();
-        _isLongPressing = false;
-        _longPressProgress = 0.0;
-        return;
-      }
     });
 
+    if (_longPressProgress >= 1.0) {
+      HapticFeedback.heavyImpact();
+      _triggerSos(); // 🔥 ONLY place SOS is triggered
+      return;
+    }
+
     HapticFeedback.selectionClick();
-    Future.delayed(Duration(milliseconds: 50), _updateProgress);
+    Future.delayed(const Duration(milliseconds: 50), _updateProgress);
   }
 
+  // 🔥 ACTUAL SOS CALL (SAFE & CLEAN)
+  Future<void> _triggerSos() async {
+    setState(() {
+      _isLongPressing = false;
+      _longPressProgress = 0.0;
+    });
+
+    try {
+      await _sosService.sendSos();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('SOS sent successfully')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to send SOS')),
+      );
+    }
+  }
+
+  // 🔵 Cancel long press
   void _handleLongPressEnd(LongPressEndDetails details) {
     setState(() {
       _isLongPressing = false;
@@ -131,7 +153,8 @@ class _SOSButtonWidgetState extends State<SOSButtonWidget>
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: AppTheme.emergencyColor.withValues(alpha: 0.4),
+                          color:
+                              AppTheme.emergencyColor.withValues(alpha: 0.4),
                           blurRadius: 20,
                           spreadRadius: 5,
                         ),
@@ -144,12 +167,10 @@ class _SOSButtonWidgetState extends State<SOSButtonWidget>
                           CircularProgressIndicator(
                             value: _longPressProgress,
                             strokeWidth: 6,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                            backgroundColor: Colors.white.withValues(
-                              alpha: 0.3,
-                            ),
+                            valueColor:
+                                const AlwaysStoppedAnimation<Color>(Colors.white),
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.3),
                           ),
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,

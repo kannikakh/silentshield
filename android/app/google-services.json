@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "310192679872",
+    "project_id": "silentshield-681a1",
+    "storage_bucket": "silentshield-681a1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:310192679872:android:1bdb7c94e5ce4daf23b625",
+        "android_client_info": {
+          "package_name": "com.example.myapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDrOQ0iNsv3dfuSuAABJ9xy_XmNJhNEfCU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

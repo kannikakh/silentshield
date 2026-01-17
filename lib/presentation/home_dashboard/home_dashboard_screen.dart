@@ -125,16 +125,14 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                         motionAIEnabled && audioAIEnabled && voiceShieldEnabled,
                   ),
                   SizedBox(height: 3.h),
+                  
                   SOSButtonWidget(
-                    isActive: isMonitoringActive,
-                    onLongPress: () {
-                      Navigator.of(
-                        context,
-                        rootNavigator: true,
-                      ).pushNamed('/sos-activated');
-                    },
-                    onSwipeUp: _showAdvancedOptions,
-                  ),
+  isActive: true,
+  onSwipeUp: () {
+    // your swipe up logic (options / modal etc.)
+  },
+),
+
                   SizedBox(height: 4.h),
                   Text(
                     'Active Monitoring',

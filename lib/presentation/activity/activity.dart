@@ -1,78 +1,68 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ActivityScreen extends StatelessWidget {
-  const ActivityScreen({Key? key}) : super(key: key);
+  const ActivityScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final events = [
-      {'title': 'SOS triggered', 'time': 'Today 09:12', 'type': 'alert'},
-      {'title': 'Motion detected', 'time': 'Yesterday 18:03', 'type': 'motion'},
-      {
-        'title': 'VoiceShield blocked call',
-        'time': 'Jan 10 14:22',
-        'type': 'voice',
-      },
-    ];
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Scaffold(
+        body: Center(child: Text('User not logged in')),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Activity')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Recent Activity',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('sos_events')
+            .where('uid', isEqualTo: '/Users/${user.uid}')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('No SOS activity yet'));
+          }
+
+          final docs = snapshot.data!.docs;
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final data = docs[index].data() as Map<String, dynamic>;
+              final Timestamp? ts = data['createdAt'];
+              final DateTime time =
+                  ts != null ? ts.toDate() : DateTime.now();
+
+              return ListTile(
+                tileColor: Theme.of(context).cardColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                TextButton(onPressed: () {}, child: const Text('Filter')),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: ListView.separated(
-                itemCount: events.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (context, i) {
-                  final e = events[i];
-                  Icon leading;
-                  switch (e['type']) {
-                    case 'motion':
-                      leading = const Icon(
-                        Icons.directions_run,
-                        color: Colors.orange,
-                      );
-                      break;
-                    case 'voice':
-                      leading = const Icon(
-                        Icons.record_voice_over,
-                        color: Colors.blue,
-                      );
-                      break;
-                    default:
-                      leading = const Icon(Icons.warning, color: Colors.red);
-                  }
-                  return ListTile(
-                    tileColor: Theme.of(context).cardColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    leading: leading,
-                    title: Text(e['title']!),
-                    subtitle: Text(e['time']!),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.more_vert),
-                      onPressed: () {},
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+                leading: const Icon(Icons.warning, color: Colors.red),
+                title: const Text('SOS Triggered'),
+                subtitle: Text(time.toString()),
+                trailing: Text(
+                  data['status'] ?? '',
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

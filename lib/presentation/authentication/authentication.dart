@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:sizer/sizer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/app_export.dart';
 import '../../widgets/custom_icon_widget.dart';
@@ -10,13 +13,7 @@ import './widgets/emergency_pin_setup_widget.dart';
 import './widgets/password_input_widget.dart';
 import 'registration.dart';
 import 'forgot_password.dart';
-import '../../services/supabase_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../services/local_user_service.dart';
 
-/// Authentication screen for SilentShield application.
-/// Provides secure login with emergency PIN setup for crisis situations.
-/// Implements biometric authentication support for enhanced security.
 class Authentication extends StatefulWidget {
   const Authentication({super.key});
 
@@ -48,20 +45,18 @@ class _AuthenticationState extends State<Authentication> {
     super.dispose();
   }
 
-  /// Check if biometric authentication is available on device
+  // 🔹 Check biometric support
   Future<void> _checkBiometricAvailability() async {
     try {
-      final canCheckBiometrics = await _localAuth.canCheckBiometrics;
-      final isDeviceSupported = await _localAuth.isDeviceSupported();
-      setState(() {
-        _biometricAvailable = canCheckBiometrics && isDeviceSupported;
-      });
-    } catch (e) {
+      final canCheck = await _localAuth.canCheckBiometrics;
+      final supported = await _localAuth.isDeviceSupported();
+      setState(() => _biometricAvailable = canCheck && supported);
+    } catch (_) {
       setState(() => _biometricAvailable = false);
     }
   }
 
-  /// Authenticate user with biometric
+  // 🔹 Biometric authentication (THIS WAS MISSING BEFORE)
   Future<void> _authenticateWithBiometric() async {
     try {
       final authenticated = await _localAuth.authenticate(
@@ -72,12 +67,14 @@ class _AuthenticationState extends State<Authentication> {
         HapticFeedback.mediumImpact();
         _navigateToHome();
       }
-    } catch (e) {
-      setState(() => _errorMessage = 'Biometric authentication failed');
+    } catch (_) {
+      setState(() {
+        _errorMessage = 'Biometric authentication failed';
+      });
     }
   }
 
-  /// Handle sign in with email and password
+  // 🔹 Firebase email/password sign in
   Future<void> _handleSignIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -86,86 +83,66 @@ class _AuthenticationState extends State<Authentication> {
       _errorMessage = null;
     });
 
-    // Simulate authentication delay
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-
     try {
-      // If Supabase configured, use it
-      if (SupabaseService.supabaseUrl.isNotEmpty &&
-          SupabaseService.supabaseAnonKey.isNotEmpty) {
-        final res = await SupabaseService.instance.client.auth
-            .signInWithPassword(email: email, password: password);
-        // If sign in succeeded, navigate to pin setup
-        if (res.session != null || res.user != null) {
-          // persist current session locally
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('current_user', email);
-          HapticFeedback.mediumImpact();
-          setState(() {
-            _isLoading = false;
-            _showPinSetup = true;
-          });
-          return;
-        }
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Sign in failed. Please check your credentials.';
-        });
-        return;
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+
+      final credential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = credential.user;
+
+      // 🔥 Save user in Firestore Users collection
+      if (user != null) {
+        await FirebaseFirestore.instance
+            .collection('Users')
+            .doc(user.uid)
+            .set({
+          'email': user.email,
+          'createdAt': FieldValue.serverTimestamp(),
+          'isActive': true,
+        }, SetOptions(merge: true));
       }
 
-      // Fallback: check local user service
-      final ok = await LocalUserService.validate(email, password);
-      if (ok) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('current_user', email);
-        HapticFeedback.mediumImpact();
-        setState(() {
-          _isLoading = false;
-          _showPinSetup = true;
-        });
-        return;
-      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_user', email);
 
+      HapticFeedback.mediumImpact();
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Invalid email or password. Please try again.';
+        _showPinSetup = true;
       });
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Sign in error: $e';
+        _errorMessage = e.message ?? 'Sign in failed';
       });
     }
   }
 
-  /// Handle PIN setup completion
   void _handlePinSetupComplete() {
     HapticFeedback.mediumImpact();
     _navigateToHome();
   }
 
-  /// Navigate to home dashboard
   void _navigateToHome() {
-    Navigator.of(
-      context,
-      rootNavigator: true,
-    ).pushReplacementNamed('/home-dashboard');
+    Navigator.of(context, rootNavigator: true)
+        .pushReplacementNamed('/home-dashboard');
   }
 
-  /// Navigate to forgot password
   void _navigateToForgotPassword() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+    );
   }
 
-  /// Navigate to registration
   void _navigateToRegistration() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const RegistrationScreen()));
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const RegistrationScreen()),
+    );
   }
 
   @override
@@ -187,23 +164,22 @@ class _AuthenticationState extends State<Authentication> {
                       SizedBox(height: 8.h),
                       _buildLogo(theme),
                       SizedBox(height: 6.h),
-                      _buildWelcomeText(theme),
+                      _buildWelcomeText(),
                       SizedBox(height: 4.h),
                       if (_errorMessage != null) _buildErrorMessage(theme),
                       EmailInputWidget(controller: _emailController),
                       SizedBox(height: 2.h),
                       PasswordInputWidget(controller: _passwordController),
                       SizedBox(height: 1.h),
-                      _buildForgotPasswordLink(theme),
+                      _buildForgotPasswordLink(),
                       SizedBox(height: 4.h),
-                      _buildSignInButton(theme),
+                      _buildSignInButton(),
                       if (_biometricAvailable) ...[
                         SizedBox(height: 3.h),
-                        _buildBiometricButton(theme),
+                        _buildBiometricButton(),
                       ],
                       SizedBox(height: 4.h),
-                      _buildCreateAccountLink(theme),
-                      SizedBox(height: 4.h),
+                      _buildCreateAccountLink(),
                     ],
                   ),
                 ),
@@ -212,7 +188,6 @@ class _AuthenticationState extends State<Authentication> {
     );
   }
 
-  /// Build SilentShield logo
   Widget _buildLogo(ThemeData theme) {
     return Column(
       children: [
@@ -232,176 +207,75 @@ class _AuthenticationState extends State<Authentication> {
         SizedBox(height: 2.h),
         Text(
           'SilentShield',
-          style: theme.textTheme.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: theme.colorScheme.onSurface,
-          ),
+          style: theme.textTheme.headlineMedium
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ],
     );
   }
 
-  /// Build welcome text
-  Widget _buildWelcomeText(ThemeData theme) {
+  Widget _buildWelcomeText() {
     return Column(
-      children: [
+      children: const [
         Text(
           'Welcome Back',
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurface,
-          ),
-          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
         ),
-        SizedBox(height: 1.h),
+        SizedBox(height: 8),
         Text(
           'Sign in to access your safety dashboard',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
           textAlign: TextAlign.center,
         ),
       ],
     );
   }
 
-  /// Build error message
   Widget _buildErrorMessage(ThemeData theme) {
-    return Container(
-      margin: EdgeInsets.only(bottom: 2.h),
-      padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.5.h),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.error.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.3),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          CustomIconWidget(
-            iconName: 'error_outline',
-            color: theme.colorScheme.error,
-            size: 5.w,
-          ),
-          SizedBox(width: 3.w),
-          Expanded(
-            child: Text(
-              _errorMessage!,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ),
-        ],
+    return Padding(
+      padding: EdgeInsets.only(bottom: 2.h),
+      child: Text(
+        _errorMessage!,
+        style: TextStyle(color: theme.colorScheme.error),
+        textAlign: TextAlign.center,
       ),
     );
   }
 
-  /// Build forgot password link
-  Widget _buildForgotPasswordLink(ThemeData theme) {
+  Widget _buildForgotPasswordLink() {
     return Align(
       alignment: Alignment.centerRight,
       child: TextButton(
         onPressed: _navigateToForgotPassword,
-        style: TextButton.styleFrom(
-          padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.5.h),
-          minimumSize: Size.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        child: Text(
-          'Forgot Password?',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.primary,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        child: const Text('Forgot Password?'),
       ),
     );
   }
 
-  /// Build sign in button
-  Widget _buildSignInButton(ThemeData theme) {
+  Widget _buildSignInButton() {
     return ElevatedButton(
       onPressed: _isLoading ? null : _handleSignIn,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: theme.colorScheme.primary,
-        foregroundColor: theme.colorScheme.onPrimary,
-        padding: EdgeInsets.symmetric(vertical: 2.h),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        elevation: 2,
-      ),
       child: _isLoading
-          ? SizedBox(
-              height: 2.5.h,
-              width: 2.5.h,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  theme.colorScheme.onPrimary,
-                ),
-              ),
-            )
-          : Text(
-              'Sign In',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+          ? const CircularProgressIndicator()
+          : const Text('Sign In'),
     );
   }
 
-  /// Build biometric authentication button
-  Widget _buildBiometricButton(ThemeData theme) {
+  Widget _buildBiometricButton() {
     return OutlinedButton.icon(
-      onPressed: _authenticateWithBiometric,
-      style: OutlinedButton.styleFrom(
-        padding: EdgeInsets.symmetric(vertical: 2.h),
-        side: BorderSide(color: theme.colorScheme.outline, width: 1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      ),
-      icon: CustomIconWidget(
-        iconName: 'fingerprint',
-        color: theme.colorScheme.primary,
-        size: 6.w,
-      ),
-      label: Text(
-        'Sign in with Biometric',
-        style: theme.textTheme.labelLarge?.copyWith(
-          color: theme.colorScheme.primary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      onPressed: () => _authenticateWithBiometric(),
+      icon: const Icon(Icons.fingerprint),
+      label: const Text('Sign in with Biometric'),
     );
   }
 
-  /// Build create account link
-  Widget _buildCreateAccountLink(ThemeData theme) {
+  Widget _buildCreateAccountLink() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          'New User? ',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        const Text('New User? '),
         TextButton(
           onPressed: _navigateToRegistration,
-          style: TextButton.styleFrom(
-            padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.5.h),
-            minimumSize: Size.zero,
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-          child: Text(
-            'Create Account',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          child: const Text('Create Account'),
         ),
       ],
     );
