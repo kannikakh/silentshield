@@ -29,7 +29,23 @@ class SosActivated extends StatefulWidget {
 
 class _SosActivatedState extends State<SosActivated>
     with TickerProviderStateMixin {
-  // Controllers and state
+  // ---------------- FIREBASE ----------------
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  String get _uid => _auth.currentUser!.uid;
+
+  CollectionReference get _contactsRef =>
+      _firestore.collection("Users").doc(_uid).collection("contacts");
+
+  CollectionReference get _sosRef =>
+      _firestore.collection("Users").doc(_uid).collection("sos_logs");
+
+  String? _sosDocId;
+  bool _sosStartSaved = false;
+
+  // ---------------- Controllers and state ----------------
   GoogleMapController? _mapController;
   late AnimationController _pulseController;
   late AnimationController _radiusController;
@@ -64,7 +80,22 @@ class _SosActivatedState extends State<SosActivated>
   @override
   void initState() {
     super.initState();
-    _initializeEmergencyMode();
+    _initializeAll();
+  }
+
+  // ---------------- MAIN INIT ----------------
+  Future<void> _initializeAll() async {
+    // ✅ 1) Save SOS START
+    await _saveSosStartToFirestore();
+
+    // ✅ 2) Load user's contacts
+    await _loadEmergencyContactsFromFirestore();
+
+    // ✅ 3) Notify contacts (log status in Firestore)
+    await _notifyContactsAndSaveStatus();
+
+    // ✅ 4) Start SOS services
+    await _initializeEmergencyMode();
   }
 
   // ✅ SOS START Save (your required format)
@@ -165,10 +196,7 @@ class _SosActivatedState extends State<SosActivated>
 
   // ---------------- SOS SERVICES ----------------
   Future<void> _initializeEmergencyMode() async {
-    // Lock screen orientation to portrait
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-
-    // Prevent device sleep and set maximum brightness
     WakelockPlus.enable();
 
     _pulseController = AnimationController(
@@ -395,8 +423,6 @@ class _SosActivatedState extends State<SosActivated>
   // ---------------- DISPOSE ----------------
   @override
   void dispose() {
-
-    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _radiusController.dispose();
 
@@ -635,16 +661,8 @@ class _SosActivatedState extends State<SosActivated>
           Expanded(
             flex: 2,
             child: GestureDetector(
-  behavior: HitTestBehavior.opaque,
-  onLongPress: () {
-    HapticFeedback.lightImpact();
-    _showCancelEmergencyDialog();
-  },
-  onLongPressStart: (_) {},
-  onLongPressMoveUpdate: (_) {},
-  onLongPressEnd: (_) {},
-  child: Container(
-
+              onLongPress: _showCancelEmergencyDialog,
+              child: Container(
                 height: 7.h,
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -768,7 +786,6 @@ class _CancelEmergencyDialogState extends State<_CancelEmergencyDialog> {
 
   @override
   void dispose() {
-    
     _timeoutTimer?.cancel();
     _pinController.dispose();
     super.dispose();
