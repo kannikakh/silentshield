@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../services/contact_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ContactsScreen extends StatefulWidget {
   const ContactsScreen({Key? key}) : super(key: key);
@@ -10,7 +10,13 @@ class ContactsScreen extends StatefulWidget {
 }
 
 class _ContactsScreenState extends State<ContactsScreen> {
-  final ContactService _service = ContactService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  String get _uid => _auth.currentUser!.uid;
+
+  CollectionReference get _contactRef =>
+      _firestore.collection('Users').doc(_uid).collection('contacts');
 
   Future<void> _showAddDialog({
     String? docId,
@@ -45,11 +51,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Save'),
           ),
         ],
@@ -57,43 +63,33 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
 
     if (result == true) {
+      final data = {
+        'name': nameCtrl.text.trim(),
+        'phone': phoneCtrl.text.trim(),
+        'relation': relationCtrl.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
       if (docId == null) {
-        // ADD
-        await _service.firestore.collection('Contacts').add({
-          'name': nameCtrl.text.trim(),
-          'Phone': phoneCtrl.text.trim(),
-          'Relation': relationCtrl.text.trim(),
-          'priority': 1,
-          'uid': _service.userPath,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        // ✅ ADD (USER SPECIFIC)
+        await _contactRef.add(data);
       } else {
-        // UPDATE
-        await _service.firestore.collection('Contacts').doc(docId).update({
-          'name': nameCtrl.text.trim(),
-          'Phone': phoneCtrl.text.trim(),
-          'Relation': relationCtrl.text.trim(),
-        });
+        // ✅ UPDATE
+        await _contactRef.doc(docId).update(data);
       }
     }
   }
 
   Future<void> _deleteContact(String docId) async {
-    await _service.firestore.collection('Contacts').doc(docId).delete();
+    await _contactRef.doc(docId).delete();
   }
 
   @override
   Widget build(BuildContext context) {
-   debugPrint('CONTACT SCREEN BUILD CALLED');
-
-
     return Scaffold(
       appBar: AppBar(title: const Text('Contacts')),
       body: StreamBuilder<QuerySnapshot>(
-        stream: _service.firestore
-    .collection('Contacts')
-    .snapshots(),
-
+        stream: _contactRef.orderBy('createdAt', descending: true).snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
@@ -123,15 +119,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 title: Text(data['name'] ?? ''),
-                subtitle: Text('${data['Relation']} • ${data['Phone']}'),
+                subtitle:
+                    Text('${data['relation'] ?? ''} • ${data['phone'] ?? ''}'),
                 trailing: PopupMenuButton<String>(
                   onSelected: (v) async {
                     if (v == 'edit') {
                       await _showAddDialog(
                         docId: doc.id,
                         name: data['name'],
-                        phone: data['Phone'],
-                        relation: data['Relation'],
+                        phone: data['phone'],
+                        relation: data['relation'],
                       );
                     } else if (v == 'delete') {
                       await _deleteContact(doc.id);

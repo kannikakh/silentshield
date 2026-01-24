@@ -4,11 +4,12 @@ import 'package:flutter/foundation.dart';
 
 class SosService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   Future<void> sendSos() async {
     debugPrint('🟡 SOS: sendSos() CALLED');
 
-    final user = FirebaseAuth.instance.currentUser;
+    final user = _auth.currentUser;
 
     if (user == null) {
       debugPrint('🔴 SOS ERROR: user is NULL');
@@ -20,17 +21,28 @@ class SosService {
 
     try {
       await _firestore.collection('sos_events').add({
+        // 🔑 MOST IMPORTANT (for filtering)
         'uid': user.uid,
+
+        // optional but useful
         'email': user.email,
+
+        // status info
         'status': 'SENT',
         'triggerType': 'button',
+
+        // 🔥 Firestore timestamp
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       debugPrint('✅ SOS WRITE SUCCESS');
-    } catch (e) {
+    } catch (e, s) {
       debugPrint('❌ SOS WRITE FAILED: $e');
+      debugPrintStack(stackTrace: s);
       rethrow;
     }
   }
 }
+
+
+
