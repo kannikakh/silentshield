@@ -22,7 +22,8 @@ class SosActivated extends StatefulWidget {
 }
 
 class _SosActivatedState extends State<SosActivated>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+
   // Controllers and state
   GoogleMapController? _mapController;
   late AnimationController _pulseController;
@@ -69,14 +70,22 @@ class _SosActivatedState extends State<SosActivated>
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _initializeEmergencyMode();
-  }
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addObserver(this);
+  _initializeEmergencyMode();
+}
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
+}
+
 
   Future<void> _initializeEmergencyMode() async {
     // Lock screen orientation to portrait
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
     // Prevent device sleep and set maximum brightness
     WakelockPlus.enable();
@@ -248,6 +257,8 @@ class _SosActivatedState extends State<SosActivated>
 
   @override
   void dispose() {
+
+    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _radiusController.dispose();
     _locationUpdateTimer?.cancel();
@@ -487,8 +498,16 @@ class _SosActivatedState extends State<SosActivated>
           Expanded(
             flex: 2,
             child: GestureDetector(
-              onLongPress: _showCancelEmergencyDialog,
-              child: Container(
+  behavior: HitTestBehavior.opaque,
+  onLongPress: () {
+    HapticFeedback.lightImpact();
+    _showCancelEmergencyDialog();
+  },
+  onLongPressStart: (_) {},
+  onLongPressMoveUpdate: (_) {},
+  onLongPressEnd: (_) {},
+  child: Container(
+
                 height: 7.h,
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -619,6 +638,7 @@ class _CancelEmergencyDialogState extends State<_CancelEmergencyDialog> {
 
   @override
   void dispose() {
+    
     _timeoutTimer?.cancel();
     _pinController.dispose();
     super.dispose();
