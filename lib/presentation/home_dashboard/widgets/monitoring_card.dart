@@ -8,13 +8,13 @@ class MonitoringCard extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
 
   const MonitoringCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.icon,
     required this.percent,
     required this.value,
     this.onChanged,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

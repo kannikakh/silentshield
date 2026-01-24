@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<<<<<<< HEAD
 
     <!-- ========= ADDED PERMISSIONS (ONLY CHANGE) ========= -->
 
@@ -24,6 +25,10 @@
 
     <!-- ================================================ -->
 
+=======
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+>>>>>>> 7d81872eaeb225154d77070735fbbdc1d0a7538f
     <application
         android:label="myapp"
         android:name="${applicationName}"

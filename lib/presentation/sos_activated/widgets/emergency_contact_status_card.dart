@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class EmergencyContactStatusCard extends StatelessWidget {
   final Map<String, dynamic>? contact;
 
-  const EmergencyContactStatusCard({Key? key, this.contact}) : super(key: key);
+  const EmergencyContactStatusCard({super.key, this.contact});
 
   @override
   Widget build(BuildContext context) {

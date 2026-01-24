@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 class VoiceShieldCallOverlay extends StatelessWidget {
-  const VoiceShieldCallOverlay({Key? key}) : super(key: key);
+  const VoiceShieldCallOverlay({super.key});
 
   @override
   Widget build(BuildContext context) {
