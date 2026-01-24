@@ -6,11 +6,11 @@ class ActiveServicesPanel extends StatelessWidget {
   final bool? isRecordingEvidence;
 
   const ActiveServicesPanel({
-    Key? key,
+    super.key,
     this.isLocationActive,
     this.isSmsActive,
     this.isRecordingEvidence,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

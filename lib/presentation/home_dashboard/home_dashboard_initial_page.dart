@@ -8,7 +8,7 @@ import 'widgets/status_badge.dart';
 import '../../routes/app_routes.dart';
 
 class HomeDashboardInitialPage extends StatefulWidget {
-  const HomeDashboardInitialPage({Key? key}) : super(key: key);
+  const HomeDashboardInitialPage({super.key});
 
   @override
   State<HomeDashboardInitialPage> createState() =>

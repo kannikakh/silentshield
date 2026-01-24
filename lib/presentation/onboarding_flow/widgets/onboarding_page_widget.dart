@@ -8,13 +8,13 @@ class OnboardingPageWidget extends StatelessWidget {
   final List<Map<String, dynamic>>? features;
 
   const OnboardingPageWidget({
-    Key? key,
+    super.key,
     required this.title,
     required this.subtitle,
     required this.animationAsset,
     required this.semanticLabel,
     this.features,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
