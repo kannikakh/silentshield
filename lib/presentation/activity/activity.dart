@@ -10,9 +10,7 @@ class ActivityScreen extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      return const Scaffold(
-        body: Center(child: Text('User not logged in')),
-      );
+      return const Scaffold(body: Center(child: Text('User not logged in')));
     }
 
     return Scaffold(
@@ -41,8 +39,7 @@ class ActivityScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
               final Timestamp? ts = data['createdAt'];
-              final DateTime time =
-                  ts != null ? ts.toDate() : DateTime.now();
+              final DateTime time = ts != null ? ts.toDate() : DateTime.now();
 
               return ListTile(
                 tileColor: Theme.of(context).cardColor,

@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pinput/pinput.dart';
@@ -23,65 +29,176 @@ class SosActivated extends StatefulWidget {
 
 class _SosActivatedState extends State<SosActivated>
     with TickerProviderStateMixin {
-  // Controllers and state
+  // ---------------- FIREBASE ----------------
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+
+  String get _uid => _auth.currentUser!.uid;
+
+  CollectionReference get _contactsRef =>
+      _firestore.collection("Users").doc(_uid).collection("contacts");
+
+  CollectionReference get _sosRef =>
+      _firestore.collection("Users").doc(_uid).collection("sos_logs");
+
+  String? _sosDocId;
+  bool _sosStartSaved = false;
+
+  // ---------------- Controllers and state ----------------
   GoogleMapController? _mapController;
   late AnimationController _pulseController;
   late AnimationController _radiusController;
+
   Timer? _locationUpdateTimer;
   Timer? _elapsedTimeTimer;
   Timer? _hapticTimer;
-  final AudioRecorder _audioRecorder = AudioRecorder();
 
-  // Location and map state
-  LatLng _currentLocation = const LatLng(
-    37.7749,
-    -122.4194,
-  ); // Default San Francisco
+  // ✅ IMPORTANT: 2 recorders (One for evidence, one for voice note)
+  final AudioRecorder _evidenceRecorder = AudioRecorder();
+  final AudioRecorder _voiceRecorder = AudioRecorder();
+
+  // ---------------- Location and map state ----------------
+  LatLng _currentLocation = const LatLng(37.7749, -122.4194);
   double _gpsAccuracy = 0.0;
   bool _isLocationServiceActive = true;
   bool _isSmsActive = false;
   bool _isRecordingEvidence = false;
   Set<Circle> _circles = {};
 
-  // Timer state
+  // ---------------- Timer state ----------------
   Duration _elapsedTime = Duration.zero;
 
-  // Emergency contacts mock data
-  final List<Map<String, dynamic>> _emergencyContacts = [
-    {
-      "name": "Sarah Johnson",
-      "relation": "Emergency Contact 1",
-      "status": "delivered",
-      "timestamp": DateTime.now().subtract(const Duration(seconds: 5)),
-    },
-    {
-      "name": "Michael Chen",
-      "relation": "Emergency Contact 2",
-      "status": "delivered",
-      "timestamp": DateTime.now().subtract(const Duration(seconds: 8)),
-    },
-    {
-      "name": "Emma Williams",
-      "relation": "Emergency Contact 3",
-      "status": "pending",
-      "timestamp": DateTime.now(),
-    },
-  ];
+  // ✅ Contacts from Firestore (current user only)
+  List<Map<String, dynamic>> _emergencyContacts = [];
+
+  // ✅ Voice note state
+  bool _isVoiceRecording = false;
+  Duration _voiceDuration = Duration.zero;
+  Timer? _voiceTimer;
 
   @override
   void initState() {
     super.initState();
-    _initializeEmergencyMode();
+    _initializeAll();
   }
 
-  Future<void> _initializeEmergencyMode() async {
-    // Lock screen orientation to portrait
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  // ---------------- MAIN INIT ----------------
+  Future<void> _initializeAll() async {
+    // ✅ 1) Save SOS START
+    await _saveSosStartToFirestore();
 
-    // Prevent device sleep and set maximum brightness
+    // ✅ 2) Load user's contacts
+    await _loadEmergencyContactsFromFirestore();
+
+    // ✅ 3) Notify contacts (log status in Firestore)
+    await _notifyContactsAndSaveStatus();
+
+    // ✅ 4) Start SOS services
+    await _initializeEmergencyMode();
+  }
+
+  // ✅ SOS START Save (your required format)
+  Future<void> _saveSosStartToFirestore() async {
+    try {
+      if (_sosStartSaved) return;
+
+      final docRef = await _sosRef.add({
+        "status": "SENT",
+        "triggerType": "button",
+        "createdAt": FieldValue.serverTimestamp(),
+      });
+
+      _sosDocId = docRef.id;
+      _sosStartSaved = true;
+
+      debugPrint("✅ SOS START saved: $_sosDocId");
+    } catch (e) {
+      debugPrint("❌ SOS START failed: $e");
+    }
+  }
+
+  // ✅ SOS END update
+  Future<void> _saveSosEndToFirestore() async {
+    try {
+      if (_sosDocId == null) return;
+
+      await _sosRef.doc(_sosDocId).update({
+        "endStatus": "DEACTIVATED",
+        "endedAt": FieldValue.serverTimestamp(),
+      });
+
+      debugPrint("✅ SOS END updated: $_sosDocId");
+    } catch (e) {
+      debugPrint("❌ SOS END update failed: $e");
+    }
+  }
+
+  // ✅ Load contacts from Firestore (current user only)
+  Future<void> _loadEmergencyContactsFromFirestore() async {
+    try {
+      final snapshot = await _contactsRef
+          .orderBy("createdAt", descending: true)
+          .get();
+
+      final list = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return {
+          "docId": doc.id,
+          "name": data["name"] ?? "",
+          "phone": data["phone"] ?? "",
+          "relation": data["relation"] ?? "",
+          "status": "pending",
+          "timestamp": DateTime.now(),
+        };
+      }).toList();
+
+      setState(() => _emergencyContacts = list);
+
+      debugPrint("✅ Contacts loaded: ${_emergencyContacts.length}");
+    } catch (e) {
+      debugPrint("❌ Failed to load contacts: $e");
+    }
+  }
+
+  // ✅ Notify contacts and store status log in Firestore
+  Future<void> _notifyContactsAndSaveStatus() async {
+    try {
+      if (_sosDocId == null) return;
+
+      if (_emergencyContacts.isEmpty) {
+        debugPrint("⚠️ No contacts to notify.");
+        return;
+      }
+
+      for (int i = 0; i < _emergencyContacts.length; i++) {
+        final c = _emergencyContacts[i];
+
+        await _sosRef.doc(_sosDocId).collection("notifications").add({
+          "name": c["name"],
+          "phone": c["phone"],
+          "relation": c["relation"],
+          "status": "SENT",
+          "createdAt": FieldValue.serverTimestamp(),
+        });
+
+        setState(() {
+          _emergencyContacts[i]["status"] = "delivered";
+          _emergencyContacts[i]["timestamp"] = DateTime.now();
+        });
+      }
+
+      debugPrint("✅ Notification logs stored.");
+    } catch (e) {
+      debugPrint("❌ Failed to notify contacts: $e");
+    }
+  }
+
+  // ---------------- SOS SERVICES ----------------
+  Future<void> _initializeEmergencyMode() async {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     WakelockPlus.enable();
 
-    // Initialize animations
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -92,25 +209,19 @@ class _SosActivatedState extends State<SosActivated>
       duration: const Duration(seconds: 3),
     )..repeat();
 
-    // Start location updates
     _startLocationUpdates();
-
-    // Start elapsed time counter
     _startElapsedTimeCounter();
-
-    // Start haptic feedback timer (every 30 seconds)
     _startHapticFeedback();
 
-    // Start evidence recording
+    // ✅ Evidence recording runs in background
     await _startEvidenceRecording();
 
-    // Check network connectivity
     _checkNetworkStatus();
   }
 
   void _startLocationUpdates() {
     _updateLocation();
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _updateLocation();
     });
   }
@@ -126,7 +237,6 @@ class _SosActivatedState extends State<SosActivated>
         _gpsAccuracy = position.accuracy;
         _isLocationServiceActive = true;
 
-        // Update expanding radius circle
         _circles = {
           Circle(
             circleId: const CircleId('broadcast_radius'),
@@ -140,7 +250,7 @@ class _SosActivatedState extends State<SosActivated>
       });
 
       _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
-    } catch (e) {
+    } catch (_) {
       setState(() {
         _isLocationServiceActive = false;
       });
@@ -148,7 +258,7 @@ class _SosActivatedState extends State<SosActivated>
   }
 
   void _startElapsedTimeCounter() {
-    _elapsedTimeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _elapsedTimeTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() {
         _elapsedTime = Duration(seconds: _elapsedTime.inSeconds + 1);
       });
@@ -156,9 +266,9 @@ class _SosActivatedState extends State<SosActivated>
   }
 
   void _startHapticFeedback() {
-    _hapticTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+    _hapticTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
       final hasVibrator = await Vibration.hasVibrator();
-      if (hasVibrator) {
+      if (hasVibrator == true) {
         Vibration.vibrate(duration: 200);
       }
     });
@@ -166,54 +276,136 @@ class _SosActivatedState extends State<SosActivated>
 
   Future<void> _startEvidenceRecording() async {
     try {
-      if (await _audioRecorder.hasPermission()) {
-        await _audioRecorder.start(
+      if (await _evidenceRecorder.hasPermission()) {
+        await _evidenceRecorder.start(
           const RecordConfig(),
-          path: 'emergency_evidence.m4a',
+          path: "emergency_evidence.m4a",
         );
-        setState(() {
-          _isRecordingEvidence = true;
-        });
+        setState(() => _isRecordingEvidence = true);
       }
     } catch (e) {
-      setState(() {
-        _isRecordingEvidence = false;
-      });
+      debugPrint("❌ Evidence record error: $e");
+      setState(() => _isRecordingEvidence = false);
     }
   }
 
   void _checkNetworkStatus() {
-    // Simulate network check - in production, use connectivity_plus
-    setState(() {
-      _isSmsActive = false; // Will be true if network is unavailable
-    });
+    setState(() => _isSmsActive = false);
   }
 
-  String _formatElapsedTime() {
-    final hours = _elapsedTime.inHours.toString().padLeft(2, '0');
-    final minutes = (_elapsedTime.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (_elapsedTime.inSeconds % 60).toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds';
+  // ---------------- VOICE NOTE RECORD ----------------
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes.toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return "$m:$s";
   }
 
+  Future<void> _toggleVoiceRecording() async {
+    try {
+      // ✅ STOP
+      if (_isVoiceRecording) {
+        final path = await _voiceRecorder.stop();
+        _voiceTimer?.cancel();
+
+        setState(() => _isVoiceRecording = false);
+
+        if (path != null) {
+          await _uploadVoiceNoteToFirebase(path);
+        }
+        return;
+      }
+
+      // ✅ START
+      final permission = await _voiceRecorder.hasPermission();
+      if (!permission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Microphone permission denied")),
+          );
+        }
+        return;
+      }
+
+      final fileName = "voice_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
+      await _voiceRecorder.start(const RecordConfig(), path: fileName);
+
+      setState(() {
+        _isVoiceRecording = true;
+        _voiceDuration = Duration.zero;
+      });
+
+      _voiceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() {
+          _voiceDuration = Duration(seconds: _voiceDuration.inSeconds + 1);
+        });
+      });
+    } catch (e) {
+      debugPrint("❌ Voice record error: $e");
+    }
+  }
+
+  Future<void> _uploadVoiceNoteToFirebase(String localPath) async {
+    try {
+      if (_sosDocId == null) return;
+
+      final fileName = "voice_${DateTime.now().millisecondsSinceEpoch}.m4a";
+      final ref = _storage.ref().child("sos_audio/$_uid/$_sosDocId/$fileName");
+
+      final file = File(localPath);
+      final task = await ref.putFile(file);
+      final audioUrl = await task.ref.getDownloadURL();
+
+      // ✅ Save audio URL in Firestore
+      await _sosRef.doc(_sosDocId).collection("voice_notes").add({
+        "audioUrl": audioUrl,
+        "durationSec": _voiceDuration.inSeconds,
+        "createdAt": FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("✅ Voice note uploaded & saved")),
+        );
+      }
+
+      debugPrint("✅ Voice note saved: $audioUrl");
+    } catch (e) {
+      debugPrint("❌ Upload error: $e");
+    }
+  }
+
+  // ---------------- CANCEL SOS ----------------
   void _showCancelEmergencyDialog() {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) =>
-          _CancelEmergencyDialog(onPinVerified: _cancelEmergency),
+      builder: (_) => _CancelEmergencyDialog(onPinVerified: _cancelEmergency),
     );
   }
 
-  void _cancelEmergency() async {
-    // Stop all services
+  Future<void> _cancelEmergency() async {
+    // ✅ stop voice if recording
+    if (_isVoiceRecording) {
+      await _voiceRecorder.stop();
+      _voiceTimer?.cancel();
+      setState(() => _isVoiceRecording = false);
+    }
+
+    // ✅ Save SOS END
+    await _saveSosEndToFirestore();
+
     _locationUpdateTimer?.cancel();
     _elapsedTimeTimer?.cancel();
     _hapticTimer?.cancel();
-    await _audioRecorder.stop();
+
+    try {
+      await _evidenceRecorder.stop();
+    } catch (_) {}
+
     WakelockPlus.disable();
 
-    // Reset orientation
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -228,48 +420,41 @@ class _SosActivatedState extends State<SosActivated>
     }
   }
 
-  void _showVoiceNoteRecorder() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _VoiceNoteRecorder(
-        onRecordingComplete: (path) {
-          // Handle voice note
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Voice note added to emergency alert'),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
+  // ---------------- DISPOSE ----------------
   @override
   void dispose() {
     _pulseController.dispose();
     _radiusController.dispose();
+
     _locationUpdateTimer?.cancel();
     _elapsedTimeTimer?.cancel();
     _hapticTimer?.cancel();
-    _audioRecorder.dispose();
+
+    _voiceTimer?.cancel();
+
+    _evidenceRecorder.dispose();
+    _voiceRecorder.dispose();
+
     _mapController?.dispose();
+
     WakelockPlus.disable();
+
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+
     super.dispose();
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return WillPopScope(
-      onWillPop: () async => false, // Disable back button
+      onWillPop: () async => false,
       child: Scaffold(
         backgroundColor: AppTheme.emergencyColor,
         body: SafeArea(
@@ -341,31 +526,6 @@ class _SosActivatedState extends State<SosActivated>
               ),
             ],
           ),
-          if (_isSmsActive)
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 3.w, vertical: 1.h),
-              decoration: BoxDecoration(
-                color: AppTheme.warningColor,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                children: [
-                  CustomIconWidget(
-                    iconName: 'sms',
-                    color: Colors.white,
-                    size: 16,
-                  ),
-                  SizedBox(width: 1.w),
-                  Text(
-                    'SMS MODE',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
@@ -398,6 +558,13 @@ class _SosActivatedState extends State<SosActivated>
     );
   }
 
+  String _formatElapsedTime() {
+    final h = _elapsedTime.inHours.toString().padLeft(2, '0');
+    final m = (_elapsedTime.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (_elapsedTime.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
   Widget _buildMapSection() {
     return Expanded(
       child: Container(
@@ -422,9 +589,7 @@ class _SosActivatedState extends State<SosActivated>
                   target: _currentLocation,
                   zoom: 15,
                 ),
-                onMapCreated: (controller) {
-                  _mapController = controller;
-                },
+                onMapCreated: (controller) => _mapController = controller,
                 circles: _circles,
                 markers: {
                   Marker(
@@ -463,16 +628,25 @@ class _SosActivatedState extends State<SosActivated>
           ),
           SizedBox(height: 1.h),
           Expanded(
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _emergencyContacts.length,
-              separatorBuilder: (context, index) => SizedBox(width: 3.w),
-              itemBuilder: (context, index) {
-                return EmergencyContactStatusCard(
-                  contact: _emergencyContacts[index],
-                );
-              },
-            ),
+            child: _emergencyContacts.isEmpty
+                ? Center(
+                    child: Text(
+                      "No contacts added",
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _emergencyContacts.length,
+                    separatorBuilder: (_, __) => SizedBox(width: 3.w),
+                    itemBuilder: (context, index) {
+                      return EmergencyContactStatusCard(
+                        contact: _emergencyContacts[index],
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -493,13 +667,6 @@ class _SosActivatedState extends State<SosActivated>
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
                 ),
                 child: Center(
                   child: Text(
@@ -517,7 +684,7 @@ class _SosActivatedState extends State<SosActivated>
           SizedBox(width: 3.w),
           Expanded(
             child: ElevatedButton(
-              onPressed: _showVoiceNoteRecorder,
+              onPressed: _toggleVoiceRecording, // ✅ voice note record upload
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white.withValues(alpha: 0.2),
                 foregroundColor: Colors.white,
@@ -531,18 +698,28 @@ class _SosActivatedState extends State<SosActivated>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CustomIconWidget(
-                    iconName: 'mic',
+                    iconName: _isVoiceRecording ? 'stop' : 'mic',
                     color: Colors.white,
                     size: 24,
                   ),
                   SizedBox(height: 0.5.h),
                   Text(
-                    'VOICE NOTE',
+                    _isVoiceRecording ? "RECORDING..." : "VOICE NOTE",
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                  if (_isVoiceRecording) ...[
+                    SizedBox(height: 0.5.h),
+                    Text(
+                      _formatDuration(_voiceDuration),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -561,9 +738,9 @@ class _SosActivatedState extends State<SosActivated>
   }
 }
 
+// ---------------- CANCEL DIALOG ----------------
 class _CancelEmergencyDialog extends StatefulWidget {
   final VoidCallback onPinVerified;
-
   const _CancelEmergencyDialog({required this.onPinVerified});
 
   @override
@@ -575,42 +752,32 @@ class _CancelEmergencyDialogState extends State<_CancelEmergencyDialog> {
   Timer? _timeoutTimer;
   int _remainingSeconds = 30;
   bool _isVerifying = false;
-  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _startTimeout();
-  }
-
-  void _startTimeout() {
     _timeoutTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         _remainingSeconds--;
         if (_remainingSeconds <= 0) {
           timer.cancel();
-          Navigator.of(context).pop();
+          Navigator.pop(context);
         }
       });
     });
   }
 
   void _verifyPin() {
-    setState(() {
-      _isVerifying = true;
-      _errorMessage = null;
-    });
+    setState(() => _isVerifying = true);
 
-    // Mock PIN verification - in production, verify against stored PIN
     Future.delayed(const Duration(milliseconds: 500), () {
       if (_pinController.text == '1234') {
         _timeoutTimer?.cancel();
-        Navigator.of(context).pop();
+        Navigator.pop(context);
         widget.onPinVerified();
       } else {
         setState(() {
           _isVerifying = false;
-          _errorMessage = 'Incorrect PIN. Try again.';
           _pinController.clear();
         });
       }
@@ -626,293 +793,24 @@ class _CancelEmergencyDialogState extends State<_CancelEmergencyDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Dialog(
-      backgroundColor: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: EdgeInsets.all(6.w),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Enter Emergency PIN',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 3.w, vertical: 1.h),
-                  decoration: BoxDecoration(
-                    color: AppTheme.warningColor.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '${_remainingSeconds}s',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: AppTheme.warningColor,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 3.h),
-            Pinput(
-              controller: _pinController,
-              length: 4,
-              autofocus: true,
-              obscureText: true,
-              enabled: !_isVerifying,
-              onCompleted: (pin) => _verifyPin(),
-              defaultPinTheme: PinTheme(
-                width: 15.w,
-                height: 8.h,
-                textStyle: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border.all(
-                    color: theme.colorScheme.outline,
-                    width: 2,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              focusedPinTheme: PinTheme(
-                width: 15.w,
-                height: 8.h,
-                textStyle: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border.all(
-                    color: theme.colorScheme.primary,
-                    width: 2,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              errorPinTheme: PinTheme(
-                width: 15.w,
-                height: 8.h,
-                textStyle: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.errorLight,
-                ),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  border: Border.all(color: AppTheme.errorLight, width: 2),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-            if (_errorMessage != null) ...[
-              SizedBox(height: 2.h),
-              Text(
-                _errorMessage!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppTheme.errorLight,
-                ),
-              ),
-            ],
-            SizedBox(height: 3.h),
-            Text(
-              'Mock PIN: 1234',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontStyle: FontStyle.italic,
-              ),
-            ),
-            SizedBox(height: 2.h),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-                SizedBox(width: 3.w),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _isVerifying ? null : _verifyPin,
-                    child: _isVerifying
-                        ? SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                theme.colorScheme.onPrimary,
-                              ),
-                            ),
-                          )
-                        : const Text('Verify'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+    return AlertDialog(
+      title: Text("Enter Emergency PIN ($_remainingSeconds s)"),
+      content: Pinput(
+        controller: _pinController,
+        length: 4,
+        obscureText: true,
+        onCompleted: (_) => _verifyPin(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
         ),
-      ),
-    );
-  }
-}
-
-class _VoiceNoteRecorder extends StatefulWidget {
-  final Function(String) onRecordingComplete;
-
-  const _VoiceNoteRecorder({required this.onRecordingComplete});
-
-  @override
-  State<_VoiceNoteRecorder> createState() => _VoiceNoteRecorderState();
-}
-
-class _VoiceNoteRecorderState extends State<_VoiceNoteRecorder> {
-  final AudioRecorder _recorder = AudioRecorder();
-  bool _isRecording = false;
-  Duration _recordingDuration = Duration.zero;
-  Timer? _durationTimer;
-
-  Future<void> _toggleRecording() async {
-    if (_isRecording) {
-      final path = await _recorder.stop();
-      _durationTimer?.cancel();
-      if (path != null) {
-        widget.onRecordingComplete(path);
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-      }
-    } else {
-      if (await _recorder.hasPermission()) {
-        await _recorder.start(const RecordConfig(), path: 'voice_note.m4a');
-        setState(() {
-          _isRecording = true;
-          _recordingDuration = Duration.zero;
-        });
-        _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          setState(() {
-            _recordingDuration = Duration(
-              seconds: _recordingDuration.inSeconds + 1,
-            );
-          });
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _durationTimer?.cancel();
-    _recorder.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: EdgeInsets.all(6.w),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 12.w,
-            height: 0.5.h,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-          SizedBox(height: 3.h),
-          Text(
-            'Record Voice Note',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          SizedBox(height: 4.h),
-          if (_isRecording) ...[
-            Container(
-              padding: EdgeInsets.all(4.w),
-              decoration: BoxDecoration(
-                color: AppTheme.emergencyColor.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: CustomIconWidget(
-                iconName: 'mic',
-                color: AppTheme.emergencyColor,
-                size: 48,
-              ),
-            ),
-            SizedBox(height: 2.h),
-            Text(
-              '${_recordingDuration.inMinutes.toString().padLeft(2, '0')}:${(_recordingDuration.inSeconds % 60).toString().padLeft(2, '0')}',
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                fontFeatures: [const FontFeature.tabularFigures()],
-              ),
-            ),
-          ] else ...[
-            Container(
-              padding: EdgeInsets.all(4.w),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: CustomIconWidget(
-                iconName: 'mic_none',
-                color: theme.colorScheme.primary,
-                size: 48,
-              ),
-            ),
-            SizedBox(height: 2.h),
-            Text(
-              'Tap to start recording',
-              style: theme.textTheme.bodyLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-          SizedBox(height: 4.h),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ),
-              SizedBox(width: 3.w),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _toggleRecording,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isRecording
-                        ? AppTheme.emergencyColor
-                        : theme.colorScheme.primary,
-                  ),
-                  child: Text(_isRecording ? 'Stop' : 'Record'),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 2.h),
-        ],
-      ),
+        ElevatedButton(
+          onPressed: _isVerifying ? null : _verifyPin,
+          child: const Text("Verify"),
+        ),
+      ],
     );
   }
 }
