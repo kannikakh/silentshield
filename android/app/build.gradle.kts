@@ -34,9 +34,12 @@ android {
     }
 
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        getByName("release") {
+            // ✅ TEMP for building APK fast
+            isMinifyEnabled = false
+            isShrinkResources = false
+
+            // ✅ Use debug signing for now (so it builds without keystore)
             signingConfig = signingConfigs.getByName("debug")
         }
     }

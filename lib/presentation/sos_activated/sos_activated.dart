@@ -43,7 +43,6 @@ class _SosActivatedState extends State<SosActivated>
       _firestore.collection("Users").doc(_uid).collection("sos_logs");
 
   String? _sosDocId;
-  bool _sosStartSaved = false;
 
   // ---------------- Controllers and state ----------------
   GoogleMapController? _mapController;
@@ -54,9 +53,8 @@ class _SosActivatedState extends State<SosActivated>
   Timer? _elapsedTimeTimer;
   Timer? _hapticTimer;
 
-  // ✅ IMPORTANT: 2 recorders (One for evidence, one for voice note)
+  // ✅ Only ONE recorder (auto start when SOS activates)
   final AudioRecorder _evidenceRecorder = AudioRecorder();
-  final AudioRecorder _voiceRecorder = AudioRecorder();
 
   // ---------------- Location and map state ----------------
   LatLng _currentLocation = const LatLng(37.7749, -122.4194);
@@ -72,11 +70,6 @@ class _SosActivatedState extends State<SosActivated>
   // ✅ Contacts from Firestore (current user only)
   List<Map<String, dynamic>> _emergencyContacts = [];
 
-  // ✅ Voice note state
-  bool _isVoiceRecording = false;
-  Duration _voiceDuration = Duration.zero;
-  Timer? _voiceTimer;
-
   @override
   void initState() {
     super.initState();
@@ -85,24 +78,22 @@ class _SosActivatedState extends State<SosActivated>
 
   // ---------------- MAIN INIT ----------------
   Future<void> _initializeAll() async {
-    // ✅ 1) Save SOS START
+    // ✅ 1) Create SOS doc
     await _saveSosStartToFirestore();
 
-    // ✅ 2) Load user's contacts
+    // ✅ 2) Load contacts
     await _loadEmergencyContactsFromFirestore();
 
-    // ✅ 3) Notify contacts (log status in Firestore)
+    // ✅ 3) Notify contacts (log)
     await _notifyContactsAndSaveStatus();
 
-    // ✅ 4) Start SOS services
+    // ✅ 4) Start SOS services + auto audio record
     await _initializeEmergencyMode();
   }
 
-  // ✅ SOS START Save (your required format)
+  // ✅ SOS START Save (your format)
   Future<void> _saveSosStartToFirestore() async {
     try {
-      if (_sosStartSaved) return;
-
       final docRef = await _sosRef.add({
         "status": "SENT",
         "triggerType": "button",
@@ -110,7 +101,6 @@ class _SosActivatedState extends State<SosActivated>
       });
 
       _sosDocId = docRef.id;
-      _sosStartSaved = true;
 
       debugPrint("✅ SOS START saved: $_sosDocId");
     } catch (e) {
@@ -118,23 +108,7 @@ class _SosActivatedState extends State<SosActivated>
     }
   }
 
-  // ✅ SOS END update
-  Future<void> _saveSosEndToFirestore() async {
-    try {
-      if (_sosDocId == null) return;
-
-      await _sosRef.doc(_sosDocId).update({
-        "endStatus": "DEACTIVATED",
-        "endedAt": FieldValue.serverTimestamp(),
-      });
-
-      debugPrint("✅ SOS END updated: $_sosDocId");
-    } catch (e) {
-      debugPrint("❌ SOS END update failed: $e");
-    }
-  }
-
-  // ✅ Load contacts from Firestore (current user only)
+  // ✅ Load contacts (current user only)
   Future<void> _loadEmergencyContactsFromFirestore() async {
     try {
       final snapshot = await _contactsRef
@@ -154,22 +128,17 @@ class _SosActivatedState extends State<SosActivated>
       }).toList();
 
       setState(() => _emergencyContacts = list);
-
-      debugPrint("✅ Contacts loaded: ${_emergencyContacts.length}");
     } catch (e) {
       debugPrint("❌ Failed to load contacts: $e");
     }
   }
 
-  // ✅ Notify contacts and store status log in Firestore
+  // ✅ Notify contacts and log status
   Future<void> _notifyContactsAndSaveStatus() async {
     try {
       if (_sosDocId == null) return;
 
-      if (_emergencyContacts.isEmpty) {
-        debugPrint("⚠️ No contacts to notify.");
-        return;
-      }
+      if (_emergencyContacts.isEmpty) return;
 
       for (int i = 0; i < _emergencyContacts.length; i++) {
         final c = _emergencyContacts[i];
@@ -187,10 +156,8 @@ class _SosActivatedState extends State<SosActivated>
           _emergencyContacts[i]["timestamp"] = DateTime.now();
         });
       }
-
-      debugPrint("✅ Notification logs stored.");
     } catch (e) {
-      debugPrint("❌ Failed to notify contacts: $e");
+      debugPrint("❌ Notify contacts failed: $e");
     }
   }
 
@@ -213,10 +180,79 @@ class _SosActivatedState extends State<SosActivated>
     _startElapsedTimeCounter();
     _startHapticFeedback();
 
-    // ✅ Evidence recording runs in background
+    // ✅ AUTO START MIC RECORDING HERE
     await _startEvidenceRecording();
 
     _checkNetworkStatus();
+  }
+
+  // ✅ AUTO RECORD starts when SOS screen starts
+  Future<void> _startEvidenceRecording() async {
+    try {
+      final permission = await _evidenceRecorder.hasPermission();
+      if (!permission) {
+        debugPrint("❌ Mic permission denied");
+        return;
+      }
+
+      // ✅ Use unique name (important)
+      final fileName = "evidence_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
+      await _evidenceRecorder.start(const RecordConfig(), path: fileName);
+
+      setState(() => _isRecordingEvidence = true);
+
+      debugPrint("✅ Evidence recording started: $fileName");
+    } catch (e) {
+      debugPrint("❌ Evidence record error: $e");
+      setState(() => _isRecordingEvidence = false);
+    }
+  }
+
+  // ✅ Stop + Upload evidence audio when SOS ends
+  Future<void> _stopAndUploadEvidenceAudio() async {
+    try {
+      if (_sosDocId == null) return;
+
+      final localPath = await _evidenceRecorder.stop();
+      setState(() => _isRecordingEvidence = false);
+
+      if (localPath == null) {
+        debugPrint("❌ Recording stopped but file path is NULL");
+        return;
+      }
+
+      debugPrint("✅ Evidence file path: $localPath");
+
+      final file = File(localPath);
+      if (!file.existsSync()) {
+        debugPrint("❌ File not found: $localPath");
+        return;
+      }
+
+      // ✅ Upload to Storage
+      final storageName =
+          "evidence_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
+      final ref = _storage.ref().child(
+        "sos_audio/$_uid/$_sosDocId/$storageName",
+      );
+
+      final task = await ref.putFile(file);
+      final audioUrl = await task.ref.getDownloadURL();
+
+      // ✅ Update SOS doc with audio
+      await _sosRef.doc(_sosDocId).update({
+        "audioUrl": audioUrl,
+        "audioDurationSec": _elapsedTime.inSeconds,
+        "audioStatus": "UPLOADED",
+        "audioUploadedAt": FieldValue.serverTimestamp(),
+      });
+
+      debugPrint("✅ Audio uploaded & saved into SOS doc");
+    } catch (e) {
+      debugPrint("❌ Stop/Upload evidence failed: $e");
+    }
   }
 
   void _startLocationUpdates() {
@@ -251,9 +287,7 @@ class _SosActivatedState extends State<SosActivated>
 
       _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
     } catch (_) {
-      setState(() {
-        _isLocationServiceActive = false;
-      });
+      setState(() => _isLocationServiceActive = false);
     }
   }
 
@@ -274,109 +308,17 @@ class _SosActivatedState extends State<SosActivated>
     });
   }
 
-  Future<void> _startEvidenceRecording() async {
-    try {
-      if (await _evidenceRecorder.hasPermission()) {
-        await _evidenceRecorder.start(
-          const RecordConfig(),
-          path: "emergency_evidence.m4a",
-        );
-        setState(() => _isRecordingEvidence = true);
-      }
-    } catch (e) {
-      debugPrint("❌ Evidence record error: $e");
-      setState(() => _isRecordingEvidence = false);
-    }
-  }
-
   void _checkNetworkStatus() {
     setState(() => _isSmsActive = false);
   }
 
-  // ---------------- VOICE NOTE RECORD ----------------
-
-  String _formatDuration(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return "$m:$s";
+  String _formatElapsedTime() {
+    final h = _elapsedTime.inHours.toString().padLeft(2, '0');
+    final m = (_elapsedTime.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (_elapsedTime.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 
-  Future<void> _toggleVoiceRecording() async {
-    try {
-      // ✅ STOP
-      if (_isVoiceRecording) {
-        final path = await _voiceRecorder.stop();
-        _voiceTimer?.cancel();
-
-        setState(() => _isVoiceRecording = false);
-
-        if (path != null) {
-          await _uploadVoiceNoteToFirebase(path);
-        }
-        return;
-      }
-
-      // ✅ START
-      final permission = await _voiceRecorder.hasPermission();
-      if (!permission) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Microphone permission denied")),
-          );
-        }
-        return;
-      }
-
-      final fileName = "voice_${DateTime.now().millisecondsSinceEpoch}.m4a";
-
-      await _voiceRecorder.start(const RecordConfig(), path: fileName);
-
-      setState(() {
-        _isVoiceRecording = true;
-        _voiceDuration = Duration.zero;
-      });
-
-      _voiceTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() {
-          _voiceDuration = Duration(seconds: _voiceDuration.inSeconds + 1);
-        });
-      });
-    } catch (e) {
-      debugPrint("❌ Voice record error: $e");
-    }
-  }
-
-  Future<void> _uploadVoiceNoteToFirebase(String localPath) async {
-    try {
-      if (_sosDocId == null) return;
-
-      final fileName = "voice_${DateTime.now().millisecondsSinceEpoch}.m4a";
-      final ref = _storage.ref().child("sos_audio/$_uid/$_sosDocId/$fileName");
-
-      final file = File(localPath);
-      final task = await ref.putFile(file);
-      final audioUrl = await task.ref.getDownloadURL();
-
-      // ✅ Save audio URL in Firestore
-      await _sosRef.doc(_sosDocId).collection("voice_notes").add({
-        "audioUrl": audioUrl,
-        "durationSec": _voiceDuration.inSeconds,
-        "createdAt": FieldValue.serverTimestamp(),
-      });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Voice note uploaded & saved")),
-        );
-      }
-
-      debugPrint("✅ Voice note saved: $audioUrl");
-    } catch (e) {
-      debugPrint("❌ Upload error: $e");
-    }
-  }
-
-  // ---------------- CANCEL SOS ----------------
   void _showCancelEmergencyDialog() {
     showDialog(
       context: context,
@@ -385,24 +327,22 @@ class _SosActivatedState extends State<SosActivated>
     );
   }
 
+  // ✅ SOS cancel → STOP RECORD → UPLOAD → UPDATE SOS END
   Future<void> _cancelEmergency() async {
-    // ✅ stop voice if recording
-    if (_isVoiceRecording) {
-      await _voiceRecorder.stop();
-      _voiceTimer?.cancel();
-      setState(() => _isVoiceRecording = false);
-    }
+    // ✅ stop & upload audio FIRST
+    await _stopAndUploadEvidenceAudio();
 
-    // ✅ Save SOS END
-    await _saveSosEndToFirestore();
+    // ✅ update SOS end fields
+    if (_sosDocId != null) {
+      await _sosRef.doc(_sosDocId).update({
+        "endStatus": "DEACTIVATED",
+        "endedAt": FieldValue.serverTimestamp(),
+      });
+    }
 
     _locationUpdateTimer?.cancel();
     _elapsedTimeTimer?.cancel();
     _hapticTimer?.cancel();
-
-    try {
-      await _evidenceRecorder.stop();
-    } catch (_) {}
 
     WakelockPlus.disable();
 
@@ -420,7 +360,6 @@ class _SosActivatedState extends State<SosActivated>
     }
   }
 
-  // ---------------- DISPOSE ----------------
   @override
   void dispose() {
     _pulseController.dispose();
@@ -430,11 +369,7 @@ class _SosActivatedState extends State<SosActivated>
     _elapsedTimeTimer?.cancel();
     _hapticTimer?.cancel();
 
-    _voiceTimer?.cancel();
-
     _evidenceRecorder.dispose();
-    _voiceRecorder.dispose();
-
     _mapController?.dispose();
 
     WakelockPlus.disable();
@@ -558,13 +493,6 @@ class _SosActivatedState extends State<SosActivated>
     );
   }
 
-  String _formatElapsedTime() {
-    final h = _elapsedTime.inHours.toString().padLeft(2, '0');
-    final m = (_elapsedTime.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (_elapsedTime.inSeconds % 60).toString().padLeft(2, '0');
-    return '$h:$m:$s';
-  }
-
   Widget _buildMapSection() {
     return Expanded(
       child: Container(
@@ -659,7 +587,6 @@ class _SosActivatedState extends State<SosActivated>
       child: Row(
         children: [
           Expanded(
-            flex: 2,
             child: GestureDetector(
               onLongPress: _showCancelEmergencyDialog,
               child: Container(
@@ -678,49 +605,6 @@ class _SosActivatedState extends State<SosActivated>
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          SizedBox(width: 3.w),
-          Expanded(
-            child: ElevatedButton(
-              onPressed: _toggleVoiceRecording, // ✅ voice note record upload
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.2),
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 2.h),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: const BorderSide(color: Colors.white, width: 2),
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CustomIconWidget(
-                    iconName: _isVoiceRecording ? 'stop' : 'mic',
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                  SizedBox(height: 0.5.h),
-                  Text(
-                    _isVoiceRecording ? "RECORDING..." : "VOICE NOTE",
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (_isVoiceRecording) ...[
-                    SizedBox(height: 0.5.h),
-                    Text(
-                      _formatDuration(_voiceDuration),
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ],
               ),
             ),
           ),
