@@ -17,6 +17,8 @@ import 'package:vibration/vibration.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/app_export.dart';
+import '../../services/sos_sms_service.dart';
+
 import './widgets/active_services_panel.dart';
 import './widgets/emergency_contact_status_card.dart';
 
@@ -36,13 +38,20 @@ class _SosActivatedState extends State<SosActivated>
 
   String get _uid => _auth.currentUser!.uid;
 
-  CollectionReference get _contactsRef =>
-      _firestore.collection("Users").doc(_uid).collection("contacts");
-
   CollectionReference get _sosRef =>
       _firestore.collection("Users").doc(_uid).collection("sos_logs");
 
   String? _sosDocId;
+
+  // ✅ STATIC NUMBERS (HARDCODED)
+  final List<String> _staticEmergencyNumbers = [
+    "+918072871278",
+    "+919245581983",
+    "+918124899091",
+  ];
+
+  // ✅ UI Contact cards (optional)
+  late List<Map<String, dynamic>> _staticContactsUI;
 
   // ---------------- Controllers and state ----------------
   GoogleMapController? _mapController;
@@ -67,13 +76,48 @@ class _SosActivatedState extends State<SosActivated>
   // ---------------- Timer state ----------------
   Duration _elapsedTime = Duration.zero;
 
-  // ✅ Contacts from Firestore (current user only)
-  List<Map<String, dynamic>> _emergencyContacts = [];
+  // ✅ Avoid duplicate SMS sending
+  bool _smsAlreadySent = false;
 
   @override
   void initState() {
     super.initState();
-    _initializeAll();
+
+    // ✅ Prepare UI cards for static numbers
+    _staticContactsUI = _staticEmergencyNumbers
+        .map(
+          (phone) => {
+            "name": "Emergency Contact",
+            "phone": phone,
+            "relation": "Static",
+            "status": "pending",
+            "timestamp": DateTime.now(),
+          },
+        )
+        .toList();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _initializeAll();
+        debugPrint("✅ SOS fully started");
+      } catch (e) {
+        debugPrint("❌ SOS init failed: $e");
+      }
+    });
+  }
+
+  // ✅ Get username safely
+  String _getUserNameForSms() {
+    final user = _auth.currentUser;
+    if (user == null) return "SilentShield User";
+
+    final name = user.displayName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+
+    final email = user.email?.trim();
+    if (email != null && email.isNotEmpty) return email;
+
+    return "SilentShield User";
   }
 
   // ---------------- MAIN INIT ----------------
@@ -81,11 +125,11 @@ class _SosActivatedState extends State<SosActivated>
     // ✅ 1) Create SOS doc
     await _saveSosStartToFirestore();
 
-    // ✅ 2) Load contacts
-    await _loadEmergencyContactsFromFirestore();
+    // ✅ 2) Send SMS to STATIC numbers using Twilio backend
+    await _sendSosSmsToStaticNumbers();
 
-    // ✅ 3) Notify contacts (log)
-    await _notifyContactsAndSaveStatus();
+    // ✅ 3) Save notification status in Firestore
+    await _saveStaticNotificationLogs();
 
     // ✅ 4) Start SOS services + auto audio record
     await _initializeEmergencyMode();
@@ -108,56 +152,84 @@ class _SosActivatedState extends State<SosActivated>
     }
   }
 
-  // ✅ Load contacts (current user only)
-  Future<void> _loadEmergencyContactsFromFirestore() async {
+  // ✅ SEND SOS SMS TO STATIC NUMBERS (WITH USERNAME)
+  Future<void> _sendSosSmsToStaticNumbers() async {
     try {
-      final snapshot = await _contactsRef
-          .orderBy("createdAt", descending: true)
-          .get();
+      if (_smsAlreadySent) return;
 
-      final list = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return {
-          "docId": doc.id,
-          "name": data["name"] ?? "",
-          "phone": data["phone"] ?? "",
-          "relation": data["relation"] ?? "",
-          "status": "pending",
-          "timestamp": DateTime.now(),
-        };
-      }).toList();
+      final numbers = _staticEmergencyNumbers;
 
-      setState(() => _emergencyContacts = list);
+      if (numbers.isEmpty) {
+        debugPrint("❌ Static emergency numbers list empty");
+        setState(() => _isSmsActive = false);
+        return;
+      }
+
+      // ✅ Get location
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // ✅ Username
+      final userName = _getUserNameForSms();
+
+      final message =
+          "🚨 SOS ALERT from SilentShield!\n"
+          "👤 User: $userName\n"
+          "Help me immediately!\n\n"
+          "📍 Location: https://maps.google.com/?q=${pos.latitude},${pos.longitude}\n";
+
+      // ✅ Twilio API call
+      await SosSmsService.sendSOS(message: message, numbers: numbers);
+
+      _smsAlreadySent = true;
+
+      setState(() => _isSmsActive = true);
+
+      // ✅ Update UI status
+      setState(() {
+        for (var c in _staticContactsUI) {
+          c["status"] = "delivered";
+          c["timestamp"] = DateTime.now();
+        }
+      });
+
+      debugPrint("✅ SOS SMS sent to static numbers: $numbers");
     } catch (e) {
-      debugPrint("❌ Failed to load contacts: $e");
+      setState(() => _isSmsActive = false);
+
+      // ✅ Update UI status
+      setState(() {
+        for (var c in _staticContactsUI) {
+          c["status"] = "failed";
+          c["timestamp"] = DateTime.now();
+        }
+      });
+
+      debugPrint("❌ SMS sending failed: $e");
     }
   }
 
-  // ✅ Notify contacts and log status
-  Future<void> _notifyContactsAndSaveStatus() async {
+  // ✅ Save notifications inside Firestore (static contacts)
+  Future<void> _saveStaticNotificationLogs() async {
     try {
       if (_sosDocId == null) return;
 
-      if (_emergencyContacts.isEmpty) return;
-
-      for (int i = 0; i < _emergencyContacts.length; i++) {
-        final c = _emergencyContacts[i];
+      for (int i = 0; i < _staticContactsUI.length; i++) {
+        final c = _staticContactsUI[i];
 
         await _sosRef.doc(_sosDocId).collection("notifications").add({
           "name": c["name"],
           "phone": c["phone"],
           "relation": c["relation"],
-          "status": "SENT",
+          "status": _isSmsActive ? "SENT" : "FAILED",
           "createdAt": FieldValue.serverTimestamp(),
         });
-
-        setState(() {
-          _emergencyContacts[i]["status"] = "delivered";
-          _emergencyContacts[i]["timestamp"] = DateTime.now();
-        });
       }
+
+      debugPrint("✅ Notification logs saved");
     } catch (e) {
-      debugPrint("❌ Notify contacts failed: $e");
+      debugPrint("❌ Notification log save failed: $e");
     }
   }
 
@@ -182,8 +254,6 @@ class _SosActivatedState extends State<SosActivated>
 
     // ✅ AUTO START MIC RECORDING HERE
     await _startEvidenceRecording();
-
-    _checkNetworkStatus();
   }
 
   // ✅ AUTO RECORD starts when SOS screen starts
@@ -195,7 +265,6 @@ class _SosActivatedState extends State<SosActivated>
         return;
       }
 
-      // ✅ Use unique name (important)
       final fileName = "evidence_${DateTime.now().millisecondsSinceEpoch}.m4a";
 
       await _evidenceRecorder.start(const RecordConfig(), path: fileName);
@@ -222,15 +291,12 @@ class _SosActivatedState extends State<SosActivated>
         return;
       }
 
-      debugPrint("✅ Evidence file path: $localPath");
-
       final file = File(localPath);
       if (!file.existsSync()) {
         debugPrint("❌ File not found: $localPath");
         return;
       }
 
-      // ✅ Upload to Storage
       final storageName =
           "evidence_${DateTime.now().millisecondsSinceEpoch}.m4a";
 
@@ -241,7 +307,6 @@ class _SosActivatedState extends State<SosActivated>
       final task = await ref.putFile(file);
       final audioUrl = await task.ref.getDownloadURL();
 
-      // ✅ Update SOS doc with audio
       await _sosRef.doc(_sosDocId).update({
         "audioUrl": audioUrl,
         "audioDurationSec": _elapsedTime.inSeconds,
@@ -308,10 +373,6 @@ class _SosActivatedState extends State<SosActivated>
     });
   }
 
-  void _checkNetworkStatus() {
-    setState(() => _isSmsActive = false);
-  }
-
   String _formatElapsedTime() {
     final h = _elapsedTime.inHours.toString().padLeft(2, '0');
     final m = (_elapsedTime.inMinutes % 60).toString().padLeft(2, '0');
@@ -329,10 +390,8 @@ class _SosActivatedState extends State<SosActivated>
 
   // ✅ SOS cancel → STOP RECORD → UPLOAD → UPDATE SOS END
   Future<void> _cancelEmergency() async {
-    // ✅ stop & upload audio FIRST
     await _stopAndUploadEvidenceAudio();
 
-    // ✅ update SOS end fields
     if (_sosDocId != null) {
       await _sosRef.doc(_sosDocId).update({
         "endStatus": "DEACTIVATED",
@@ -556,10 +615,10 @@ class _SosActivatedState extends State<SosActivated>
           ),
           SizedBox(height: 1.h),
           Expanded(
-            child: _emergencyContacts.isEmpty
+            child: _staticContactsUI.isEmpty
                 ? Center(
                     child: Text(
-                      "No contacts added",
+                      "No contacts",
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: Colors.white.withValues(alpha: 0.9),
                       ),
@@ -567,11 +626,11 @@ class _SosActivatedState extends State<SosActivated>
                   )
                 : ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: _emergencyContacts.length,
+                    itemCount: _staticContactsUI.length,
                     separatorBuilder: (_, __) => SizedBox(width: 3.w),
                     itemBuilder: (context, index) {
                       return EmergencyContactStatusCard(
-                        contact: _emergencyContacts[index],
+                        contact: _staticContactsUI[index],
                       );
                     },
                   ),
