@@ -56,7 +56,7 @@ class _AuthenticationState extends State<Authentication> {
     }
   }
 
-  // 🔹 Biometric authentication (THIS WAS MISSING BEFORE)
+  // 🔹 Biometric authentication
   Future<void> _authenticateWithBiometric() async {
     try {
       final authenticated = await _localAuth.authenticate(
@@ -71,6 +71,21 @@ class _AuthenticationState extends State<Authentication> {
       setState(() {
         _errorMessage = 'Biometric authentication failed';
       });
+    }
+  }
+
+  // 🔴 STEP 1 ADD: Load code word from Firestore & save locally
+  Future<void> _loadUserCodeWord(String uid) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('Users')
+        .doc(uid)
+        .get();
+
+    if (doc.exists) {
+      final codeWord = doc.data()?['codeWord'];
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('code_word', codeWord ?? '');
     }
   }
 
@@ -105,6 +120,9 @@ class _AuthenticationState extends State<Authentication> {
           'createdAt': FieldValue.serverTimestamp(),
           'isActive': true,
         }, SetOptions(merge: true));
+
+        // 🔴 STEP 1 ADD: load & store code word
+        await _loadUserCodeWord(user.uid);
       }
 
       final prefs = await SharedPreferences.getInstance();
@@ -262,7 +280,7 @@ class _AuthenticationState extends State<Authentication> {
 
   Widget _buildBiometricButton() {
     return OutlinedButton.icon(
-      onPressed: () => _authenticateWithBiometric(),
+      onPressed: _authenticateWithBiometric,
       icon: const Icon(Icons.fingerprint),
       label: const Text('Sign in with Biometric'),
     );
