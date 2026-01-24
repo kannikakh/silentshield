@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 
 import '../core/app_export.dart';
 import '../widgets/custom_error_widget.dart';
+// ignore: unnecessary_import
 import 'package:flutter/foundation.dart';
 
 void main() async {

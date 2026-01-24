@@ -26,6 +26,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
   bool isOnlineMode = true;
   bool isBatteryOptimized = true;
 
+  // ignore: unused_element
   void _showAdvancedOptions() {
     showModalBottomSheet(
       context: context,
@@ -125,13 +126,13 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                         motionAIEnabled && audioAIEnabled && voiceShieldEnabled,
                   ),
                   SizedBox(height: 3.h),
-                  
+
                   SOSButtonWidget(
-  isActive: true,
-  onSwipeUp: () {
-    // your swipe up logic (options / modal etc.)
-  },
-),
+                    isActive: true,
+                    onSwipeUp: () {
+                      // your swipe up logic (options / modal etc.)
+                    },
+                  ),
 
                   SizedBox(height: 4.h),
                   Text(
