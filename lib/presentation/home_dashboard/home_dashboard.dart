@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// ✅ Location
+import 'package:geolocator/geolocator.dart';
+
 import '../../routes/app_routes.dart';
 import '../../widgets/custom_bottom_bar.dart';
 import './home_dashboard_initial_page.dart';
@@ -26,6 +29,10 @@ class HomeDashboardState extends State<HomeDashboard> {
   int _speakCount = 0;
   bool _isListening = false;
 
+  // ✅ Location flags
+  // ignore: unused_field
+  bool _locationSaved = false;
+
   final List<String> routes = [
     AppRoutes.homeDashboard,
     AppRoutes.contacts,
@@ -38,6 +45,11 @@ class HomeDashboardState extends State<HomeDashboard> {
     super.initState();
     _loadCodeWord();
     _initSpeech();
+
+    // ✅ Location permission + store location in SharedPreferences
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _requestLocationPermissionAndStore();
+    });
   }
 
   // 🔹 Load code word saved at login
@@ -57,6 +69,57 @@ class HomeDashboardState extends State<HomeDashboard> {
 
     // 🔴 Start listening automatically after init
     _startListening();
+  }
+
+  // ✅ LOCATION: ask permission + store lat,lng,mapLink
+  Future<void> _requestLocationPermissionAndStore() async {
+    try {
+      // ✅ 1) Check service
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint("❌ Location services are OFF");
+        return;
+      }
+
+      // ✅ 2) Check permission
+      LocationPermission permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied) {
+        debugPrint("❌ Location permission denied");
+        return;
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        debugPrint("❌ Location permission denied forever");
+        return;
+      }
+
+      // ✅ 3) Get current location
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+      final mapLink = "https://www.google.com/maps?q=$lat,$lng";
+
+      // ✅ 4) Save in SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble("lat", lat);
+      await prefs.setDouble("lng", lng);
+      await prefs.setString("mapLink", mapLink);
+
+      setState(() => _locationSaved = true);
+
+      debugPrint("✅ Location stored in prefs: $lat , $lng");
+      debugPrint("✅ Map link: $mapLink");
+    } catch (e) {
+      debugPrint("❌ Location store failed: $e");
+    }
   }
 
   // 🔥 STEP 6: START LISTENING + COUNT
@@ -99,8 +162,10 @@ class HomeDashboardState extends State<HomeDashboard> {
     _isListening = false;
     HapticFeedback.heavyImpact();
 
-    Navigator.of(context, rootNavigator: true)
-        .pushReplacementNamed('/sos-screen');
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushReplacementNamed('/sos-screen');
   }
 
   @override
@@ -140,8 +205,7 @@ class HomeDashboardState extends State<HomeDashboard> {
           if (!AppRoutes.routes.containsKey(routes[index])) return;
           if (currentIndex != index) {
             setState(() => currentIndex = index);
-            navigatorKey.currentState
-                ?.pushReplacementNamed(routes[index]);
+            navigatorKey.currentState?.pushReplacementNamed(routes[index]);
           }
         },
       ),

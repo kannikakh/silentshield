@@ -17,8 +17,9 @@ class ActivityScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Activity')),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('sos_events')
-            .where('uid', isEqualTo: '/Users/${user.uid}')
+            .collection('Users')
+            .doc(user.uid)
+            .collection('sos_logs')
             .orderBy('createdAt', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
@@ -38,6 +39,7 @@ class ActivityScreen extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final data = docs[index].data() as Map<String, dynamic>;
+
               final Timestamp? ts = data['createdAt'];
               final DateTime time = ts != null ? ts.toDate() : DateTime.now();
 
@@ -50,7 +52,7 @@ class ActivityScreen extends StatelessWidget {
                 title: const Text('SOS Triggered'),
                 subtitle: Text(time.toString()),
                 trailing: Text(
-                  data['status'] ?? '',
+                  (data['status'] ?? '').toString(),
                   style: const TextStyle(
                     color: Colors.red,
                     fontWeight: FontWeight.w600,

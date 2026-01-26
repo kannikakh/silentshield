@@ -40,9 +40,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.setBool('audio', _audio);
     await prefs.setBool('voiceShield', _voiceShield);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Settings saved')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Settings saved')));
   }
 
   Future<void> _logout() async {
@@ -53,13 +53,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('current_user');
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Logged out')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Logged out')));
 
-    Navigator.of(context).pushReplacementNamed(
-      AppRoutes.authentication,
-    );
+    Navigator.of(context).pushReplacementNamed(AppRoutes.authentication);
   }
 
   @override
@@ -102,8 +100,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ListTile(
               title: const Text('Change Password'),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () =>
-                  Navigator.of(context).pushNamed('/reset-password'),
+              onTap: () => Navigator.of(context).pushNamed('/reset-password'),
             ),
             ListTile(
               title: const Text('Logout'),

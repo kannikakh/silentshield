@@ -122,7 +122,7 @@ class _SosActivatedState extends State<SosActivated>
 
   // ---------------- MAIN INIT ----------------
   Future<void> _initializeAll() async {
-    // ✅ 1) Create SOS doc
+    // ✅ 1) Create SOS doc (ONLY STORES lat,lng,mapLink)
     await _saveSosStartToFirestore();
 
     // ✅ 2) Send SMS to STATIC numbers using Twilio backend
@@ -135,24 +135,37 @@ class _SosActivatedState extends State<SosActivated>
     await _initializeEmergencyMode();
   }
 
-  // ✅ SOS START Save (your format)
+  // ✅ SOS START Save (ONLY 3 fields)
   Future<void> _saveSosStartToFirestore() async {
     try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+      final mapLink = "https://www.google.com/maps?q=$lat,$lng";
+
       final docRef = await _sosRef.add({
         "status": "SENT",
         "triggerType": "button",
         "createdAt": FieldValue.serverTimestamp(),
+
+        // ✅ Minimal fields only
+        "lat": lat,
+        "lng": lng,
+        "mapLink": mapLink,
       });
 
       _sosDocId = docRef.id;
 
-      debugPrint("✅ SOS START saved: $_sosDocId");
+      debugPrint("✅ SOS START saved minimal data: $_sosDocId");
     } catch (e) {
       debugPrint("❌ SOS START failed: $e");
     }
   }
 
-  // ✅ SEND SOS SMS TO STATIC NUMBERS (WITH USERNAME)
+  // ✅ SEND SOS SMS TO STATIC NUMBERS (WITH USERNAME + MAP LINK)
   Future<void> _sendSosSmsToStaticNumbers() async {
     try {
       if (_smsAlreadySent) return;
@@ -170,6 +183,10 @@ class _SosActivatedState extends State<SosActivated>
         desiredAccuracy: LocationAccuracy.high,
       );
 
+      final lat = pos.latitude;
+      final lng = pos.longitude;
+      final mapLink = "https://www.google.com/maps?q=$lat,$lng";
+
       // ✅ Username
       final userName = _getUserNameForSms();
 
@@ -177,7 +194,7 @@ class _SosActivatedState extends State<SosActivated>
           "🚨 SOS ALERT from SilentShield!\n"
           "👤 User: $userName\n"
           "Help me immediately!\n\n"
-          "📍 Location: https://maps.google.com/?q=${pos.latitude},${pos.longitude}\n";
+          "📍 Location: $mapLink\n";
 
       // ✅ Twilio API call
       await SosSmsService.sendSOS(message: message, numbers: numbers);
@@ -327,6 +344,7 @@ class _SosActivatedState extends State<SosActivated>
     });
   }
 
+  // ✅ Live tracking update (ONLY lat,lng,mapLink)
   Future<void> _updateLocation() async {
     try {
       final position = await Geolocator.getCurrentPosition(
@@ -351,6 +369,19 @@ class _SosActivatedState extends State<SosActivated>
       });
 
       _mapController?.animateCamera(CameraUpdate.newLatLng(_currentLocation));
+
+      // ✅ SAVE MINIMAL LIVE LOCATION INSIDE SOS DOC
+      if (_sosDocId != null) {
+        final lat = position.latitude;
+        final lng = position.longitude;
+        final mapLink = "https://www.google.com/maps?q=$lat,$lng";
+
+        await _sosRef.doc(_sosDocId).update({
+          "lat": lat,
+          "lng": lng,
+          "mapLink": mapLink,
+        });
+      }
     } catch (_) {
       setState(() => _isLocationServiceActive = false);
     }

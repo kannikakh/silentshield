@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:sizer/sizer.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geolocator/geolocator.dart';
+
 import '../../../core/app_export.dart';
 import './widgets/permission_card_widget.dart';
 
@@ -15,6 +19,10 @@ class PermissionsSetup extends StatefulWidget {
 }
 
 class _PermissionsSetupState extends State<PermissionsSetup> {
+  // ✅ Firebase
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
   // Permission status tracking
   final Map<String, bool> _permissionStatus = {
     'location': false,
@@ -50,6 +58,49 @@ class _PermissionsSetupState extends State<PermissionsSetup> {
     });
   }
 
+  // ✅ Store user location into Firestore (only lat,lng,mapLink,timeStamp)
+  Future<void> _storeUserLocationToFirestore() async {
+    try {
+      final user = _auth.currentUser;
+
+      if (user == null) {
+        debugPrint("❌ User not logged in - cannot store location");
+        return;
+      }
+
+      // ✅ Ensure location service is enabled
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        debugPrint("❌ Location service disabled");
+        return;
+      }
+
+      // ✅ Get GPS position
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      final mapLink =
+          "https://maps.google.com/?q=${pos.latitude},${pos.longitude}";
+
+      // ✅ Store for each user (inside Users/{uid}/locations)
+      await _firestore
+          .collection("Users")
+          .doc(user.uid)
+          .collection("locations")
+          .add({
+            "lat": pos.latitude,
+            "lng": pos.longitude,
+            "mapLink": mapLink,
+            "timeStamp": FieldValue.serverTimestamp(),
+          });
+
+      debugPrint("✅ Location stored in Firestore for user: ${user.uid}");
+    } catch (e) {
+      debugPrint("❌ Firestore location save failed: $e");
+    }
+  }
+
   /// Request specific permission
   Future<void> _requestPermission(String permissionType) async {
     Permission permission;
@@ -75,6 +126,11 @@ class _PermissionsSetupState extends State<PermissionsSetup> {
     }
 
     final status = await permission.request();
+
+    // ✅ If location permission granted → store location immediately
+    if (permissionType == "location" && status.isGranted) {
+      await _storeUserLocationToFirestore();
+    }
 
     setState(() {
       _permissionStatus[permissionType] = status.isGranted;
@@ -220,6 +276,7 @@ class _PermissionsSetupState extends State<PermissionsSetup> {
                     ],
                   ),
                   SizedBox(height: 1.h),
+
                   // Progress indicator
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
