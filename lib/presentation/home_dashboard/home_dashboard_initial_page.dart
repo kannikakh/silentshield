@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 
-// imported widgets live under presentation/home_dashboard/widgets/
+// existing widgets
 import 'widgets/monitoring_card.dart';
 import 'widgets/quick_action_card.dart';
 import 'widgets/sos_button.dart';
 import 'widgets/status_badge.dart';
 import '../../routes/app_routes.dart';
+
+// AI + widgets
+import '../../services/ai_service.dart';
+import '../../widgets/transcript_widget.dart';
+import '../../widgets/risk_meter_widget.dart';
 
 class HomeDashboardInitialPage extends StatefulWidget {
   const HomeDashboardInitialPage({super.key});
@@ -20,55 +25,64 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
   bool _audioEnabled = true;
   bool _voiceShieldEnabled = true;
 
-  void _openVoiceNoteRecorder() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final theme = Theme.of(context);
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Record Voice Note',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Icon(Icons.mic, size: 48, color: theme.colorScheme.primary),
-              const SizedBox(height: 12),
-              Text('Tap to start recording', style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Record'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+  String _transcript = "";
+  double _risk = 0.0;
+  String _label = "safe";
+  bool _loading = false;
+
+  // 🔥 AI FUNCTION
+  void _runVoiceShieldTest() async {
+    if (!_voiceShieldEnabled || !_audioEnabled) return;
+
+    final samples = [
+      "your account is blocked share otp",
+      "you won a prize click link",
+      "hello how are you",
+      "urgent update your info",
+      "let's catch up soon",
+    ];
+
+    samples.shuffle();
+    final testText = samples.first;
+
+    try {
+      setState(() {
+        _loading = true;
+        _transcript = "";
+      });
+
+      // ✨ Fake typing effect
+      for (int i = 0; i < testText.length; i++) {
+        await Future.delayed(const Duration(milliseconds: 25));
+        setState(() {
+          _transcript += testText[i];
+        });
+      }
+
+      final result = await AIService.analyzeText(testText);
+
+      setState(() {
+        _risk = result["risk"];
+        _label = result["label"];
+        _loading = false;
+      });
+
+      // 🚨 ALERT (SnackBar instead of popup)
+      if (_risk >= 0.7) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.red,
+            content: Text("⚠️ Scam call detected!"),
           ),
         );
-      },
-    );
+      }
+    } catch (e) {
+      setState(() => _loading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error connecting to AI service")),
+      );
+    }
   }
 
   @override
@@ -88,7 +102,8 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 8),
-                // Top row: spacer + settings
+
+                // 🔹 Top bar
                 Row(
                   children: [
                     const Expanded(child: SizedBox()),
@@ -102,37 +117,45 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                     ),
                   ],
                 ),
-                // Protected badge
+
+                // 🔹 Status badge
                 Align(
                   alignment: Alignment.center,
                   child: StatusBadge(protected: true),
                 ),
                 const SizedBox(height: 12),
 
-                // Big SOS button
+                // 🔴 SOS + MIC
                 Center(
                   child: Column(
                     children: [
                       const SosButton(),
                       const SizedBox(height: 8),
-                      // small voice note button under SOS
+
+                      // 🔥 MIC BUTTON (NO POPUP NOW)
                       IconButton(
-                        onPressed: _openVoiceNoteRecorder,
-                        icon: Icon(Icons.mic, color: theme.colorScheme.primary),
+                        onPressed: _runVoiceShieldTest,
+                        icon: Icon(
+                          Icons.mic,
+                          size: 28,
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
                     ],
                   ),
                 ),
+
                 const SizedBox(height: 8),
                 Center(
                   child: Text(
-                    'Long press to activate',
+                    'Tap mic to analyze call',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
+
                 const SizedBox(height: 18),
 
-                // Active Monitoring header
+                // 🔹 Monitoring
                 Text(
                   'Active Monitoring',
                   style: theme.textTheme.titleLarge,
@@ -140,7 +163,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                 ),
                 const SizedBox(height: 12),
 
-                // Monitoring cards
                 MonitoringCard(
                   title: 'Motion AI',
                   icon: Icons.directions_run,
@@ -149,6 +171,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                   onChanged: (v) => setState(() => _motionEnabled = v),
                 ),
                 const SizedBox(height: 12),
+
                 MonitoringCard(
                   title: 'Audio AI',
                   icon: Icons.mic,
@@ -157,6 +180,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                   onChanged: (v) => setState(() => _audioEnabled = v),
                 ),
                 const SizedBox(height: 12),
+
                 MonitoringCard(
                   title: 'VoiceShield',
                   icon: Icons.call,
@@ -166,6 +190,30 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                 ),
 
                 const SizedBox(height: 20),
+
+                // 🔥 VOICESHIELD OUTPUT
+                if (_voiceShieldEnabled) ...[
+                  Text(
+                    'VoiceShield Analysis',
+                    style: theme.textTheme.titleLarge,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (_loading) const CircularProgressIndicator(),
+
+                  TranscriptWidget(
+                    text: _transcript.isEmpty
+                        ? "Tap mic to analyze voice..."
+                        : _transcript,
+                  ),
+
+                  RiskMeterWidget(risk: _risk, label: _label),
+                ],
+
+                const SizedBox(height: 20),
+
+                // 🔹 Quick Actions
                 Text(
                   'Quick Actions',
                   style: theme.textTheme.titleLarge,
@@ -173,7 +221,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                 ),
                 const SizedBox(height: 12),
 
-                // Quick action grid
                 Row(
                   children: [
                     Expanded(
@@ -195,7 +242,9 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
+
                 Center(
                   child: QuickActionCard(
                     label: 'Switch to SMS Mode',

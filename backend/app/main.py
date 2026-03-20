@@ -5,16 +5,18 @@ from twilio.rest import Client
 from dotenv import load_dotenv
 import os
 
+from app.scam_detector import analyze_text  # ✅ import here
+
 load_dotenv()
 
-app = FastAPI()
+app = FastAPI()  # ✅ MUST come BEFORE routes
 
-# ✅ ADD THIS CORS BLOCK
+# ✅ CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all (for testing)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # allow POST, OPTIONS, etc.
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -24,10 +26,15 @@ TWILIO_PHONE = os.getenv("TWILIO_PHONE")
 
 client = Client(TWILIO_SID, TWILIO_AUTH)
 
+# ✅ MODELS
 class SOSRequest(BaseModel):
     message: str
     numbers: list[str]
 
+class TextInput(BaseModel):
+    text: str
+
+# ✅ EXISTING ROUTE
 @app.post("/send-sos-sms")
 def send_sos_sms(data: SOSRequest):
     sent = []
@@ -45,3 +52,9 @@ def send_sos_sms(data: SOSRequest):
             failed.append({"to": number, "error": str(e)})
 
     return {"status": "done", "sent": sent, "failed": failed}
+
+
+# ✅ NEW ROUTE (PUT AFTER app = FastAPI())
+@app.post("/analyze-call")
+def analyze_call(data: TextInput):
+    return analyze_text(data.text)

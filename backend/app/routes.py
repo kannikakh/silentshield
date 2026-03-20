@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from firebase_admin import firestore
 from app.firebase_config import db
+from app.scam_detector import analyze_text
 from app.models import (
     UserSaveRequest,
     ContactAddRequest,
@@ -9,6 +10,19 @@ from app.models import (
     SOSStatusUpdateRequest,
     LoginHistoryAddRequest,
 )
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+router = APIRouter()
+
+class TextInput(BaseModel):
+    text: str
+
+
+@router.post("/analyze-call")
+def analyze_call(data: TextInput):
+    result = analyze_text(data.text)
+    return result
 
 router = APIRouter()
 
