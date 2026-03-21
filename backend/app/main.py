@@ -24,19 +24,27 @@ TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE = os.getenv("TWILIO_PHONE")
 
-client = Client(TWILIO_SID, TWILIO_AUTH)
+# Only create Twilio client if credentials exist (for testing, this is optional)
+try:
+    if TWILIO_SID and TWILIO_AUTH:
+        client = Client(TWILIO_SID, TWILIO_AUTH)
+    else:
+        client = None
+        print("⚠️  Twilio credentials not found - SMS features disabled")
+except Exception as e:
+    client = None
+    print(f"⚠️  Twilio error: {e}")
 
 # ✅ MODELS
 class SOSRequest(BaseModel):
     message: str
     numbers: list[str]
 
-class TextInput(BaseModel):
-    text: str
-
-# ✅ EXISTING ROUTE
 @app.post("/send-sos-sms")
 def send_sos_sms(data: SOSRequest):
+    if client is None:
+        return {"status": "error", "message": "SMS service not configured", "sent": [], "failed": []}
+    
     sent = []
     failed = []
 

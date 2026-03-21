@@ -9,6 +9,8 @@ import '../presentation/contacts/contacts.dart';
 import '../presentation/activity/activity.dart';
 import '../presentation/settings/settings.dart';
 import '../presentation/authentication/reset_password.dart';
+import '../presentation/call_analysis_integration_example.dart';
+import '../presentation/live_call_analysis.dart';
 
 class AppRoutes {
   // TODO: Add your routes here
@@ -23,6 +25,8 @@ class AppRoutes {
   static const String activity = '/activity';
   static const String settings = '/settings';
   static const String resetPassword = '/reset-password';
+  static const String callAnalysisExample = '/call-analysis-example';
+  static const String liveCallAnalysis = '/live-call-analysis';
 
   static Map<String, WidgetBuilder> routes = {
     initial: (context) => const OnboardingFlow(),
@@ -36,6 +40,8 @@ class AppRoutes {
     activity: (context) => const ActivityScreen(),
     settings: (context) => const ProfileScreen(),
     resetPassword: (context) => const ResetPasswordScreen(email: ''),
+    callAnalysisExample: (context) => const CallAnalysisIntegrationExample(),
+    liveCallAnalysis: (context) => const LiveCallAnalysis(),
     // TODO: Add your other routes here
   };
 }

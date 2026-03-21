@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 
 import '../core/app_export.dart';
 import '../widgets/custom_error_widget.dart';
+import '../presentation/onboarding_flow/onboarding_flow.dart';
 // ignore: unnecessary_import
 import 'package:flutter/foundation.dart';
 
@@ -15,14 +16,14 @@ void main() async {
 
   // ✅ Initialize Firebase
   try {
-await Firebase.initializeApp(
-  options: DefaultFirebaseOptions.currentPlatform,
-);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
 
-  print('🔥 FIREBASE INITIALIZED SUCCESSFULLY');
-} catch (e) {
-  print('❌ FIREBASE INIT FAILED: $e');
-}
+    print('🔥 FIREBASE INITIALIZED SUCCESSFULLY');
+  } catch (e) {
+    print('❌ FIREBASE INIT FAILED: $e');
+  }
 
   bool hasShownError = false;
 
@@ -50,9 +51,7 @@ await Firebase.initializeApp(
     final hasSession = prefs.containsKey('current_user');
 
     runApp(
-      MyApp(
-        initialRoute: hasSession ? '/home-dashboard' : AppRoutes.initial,
-      ),
+      MyApp(initialRoute: hasSession ? '/home-dashboard' : AppRoutes.initial),
     );
   });
 }
@@ -73,8 +72,9 @@ class MyApp extends StatelessWidget {
           // 🚨 CRITICAL: NEVER REMOVE OR MODIFY
           builder: (context, child) {
             return MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(1.0)),
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(1.0)),
               child: child!,
             );
           },
@@ -82,6 +82,12 @@ class MyApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           routes: AppRoutes.routes,
           initialRoute: initialRoute ?? AppRoutes.initial,
+          onGenerateRoute: (settings) {
+            // Fallback for unknown routes
+            return MaterialPageRoute(
+              builder: (context) => const OnboardingFlow(),
+            );
+          },
         );
       },
     );

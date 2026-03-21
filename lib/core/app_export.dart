@@ -4,3 +4,7 @@ export '../routes/app_routes.dart';
 export '../widgets/custom_icon_widget.dart';
 export '../widgets/custom_image_widget.dart';
 export '../theme/app_theme.dart';
+export '../services/api_service.dart';
+export '../services/call_analysis_service.dart';
+export '../services/speech_recognition_service.dart';
+export '../models/call_analysis_response.dart';
