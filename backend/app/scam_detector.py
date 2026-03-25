@@ -1,6 +1,9 @@
 def analyze_text(text: str):
     text = text.lower()
 
+    # ✅ correct indentation
+    clean_text = text.replace(" ", "")
+
     scam_keywords = [
         "otp", "urgent", "bank", "account", "blocked",
         "transfer", "password", "verify", "click link",
@@ -10,24 +13,16 @@ def analyze_text(text: str):
     score = 0
 
     for word in scam_keywords:
-        if word in text:
+        if word in clean_text:
             score += 1
 
-    # 🔥 NEW LOGIC
-    if score >= 3:
-        risk = 0.9
-        label = "scam"
-    elif score == 2:
-        risk = 0.6
-        label = "scam"
-    elif score == 1:
-        risk = 0.3
-        label = "suspicious"
-    else:
-        risk = 0.1
-        label = "safe"
+    print("INPUT:", text)
+    print("CLEAN:", clean_text)
+    print("SCORE:", score)
 
-    return {
-        "risk": risk,
-        "label": label
-    }
+    if score >= 2:
+        return {"risk": 0.9, "label": "scam"}
+    elif score == 1:
+        return {"risk": 0.6, "label": "suspicious"}
+    else:
+        return {"risk": 0.1, "label": "safe"}

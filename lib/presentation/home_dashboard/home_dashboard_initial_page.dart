@@ -38,8 +38,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
       "your account is blocked share otp",
       "you won a prize click link",
       "hello how are you",
-      "urgent update your info",
-      "let's catch up soon",
     ];
 
     samples.shuffle();
