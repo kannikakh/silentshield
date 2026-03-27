@@ -12,7 +12,8 @@ from app.scam_detector import analyze_text  # ✅ import here
 load_dotenv()
 
 app = FastAPI()  # ✅ MUST come BEFORE routes
-
+class TextInput(BaseModel):
+    text: str
 # ✅ CORS
 app.add_middleware(
     CORSMiddleware,
