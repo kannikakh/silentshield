@@ -1,33 +1,42 @@
 def analyze_text(text: str):
-    text = text.lower()
+    text = text.lower().strip()
 
-    scam_keywords = [
-        "otp", "urgent", "bank", "account", "blocked",
-        "transfer", "password", "verify", "click link",
-        "loan", "prize", "winner", "upi", "refund"
+    # 🟢 SAFE WORDS (force 0)
+    safe_words = ["hello", "hi", "hey"]
+
+    if text in safe_words:
+        return {
+            "transcript": text,
+            "risk": 0.0,
+            "scamPatterns": [],
+            "confidenceScore": 100
+        }
+
+    # 🔴 HIGH RISK KEYWORDS
+    high_risk_words = [
+        "otp",
+        "bank account",
+        "account details",
+        "password",
+        "cvv",
+        "pin",
+        "urgent",
+        "click the link"
     ]
 
-    score = 0
+    # 🔥 Check keyword match
+    if any(word in text for word in high_risk_words):
+        return {
+            "transcript": text,
+            "risk": 0.8,
+            "scamPatterns": ["Sensitive information request"],
+            "confidenceScore": 95
+        }
 
-    for word in scam_keywords:
-        if word in text:
-            score += 1
-
-    # 🔥 NEW LOGIC
-    if score >= 3:
-        risk = 0.9
-        label = "scam"
-    elif score == 2:
-        risk = 0.6
-        label = "scam"
-    elif score == 1:
-        risk = 0.3
-        label = "suspicious"
-    else:
-        risk = 0.1
-        label = "safe"
-
+    # 🟢 DEFAULT SAFE
     return {
-        "risk": risk,
-        "label": label
+        "transcript": text,
+        "risk": 0.0,
+        "scamPatterns": [],
+        "confidenceScore": 100
     }

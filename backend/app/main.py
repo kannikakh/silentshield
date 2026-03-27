@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from twilio.rest import Client
 from dotenv import load_dotenv
+from app.scam_detector import analyze_text
+
 import os
 
 from app.scam_detector import analyze_text  # ✅ import here
@@ -39,6 +41,9 @@ except Exception as e:
 class SOSRequest(BaseModel):
     message: str
     numbers: list[str]
+
+class TextInput(BaseModel):
+    text: str
 
 @app.post("/send-sos-sms")
 def send_sos_sms(data: SOSRequest):

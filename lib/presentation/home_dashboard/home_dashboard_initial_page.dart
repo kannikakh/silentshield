@@ -30,7 +30,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
   String _label = "safe";
   bool _loading = false;
 
-  // 🔥 AI FUNCTION
   void _runVoiceShieldTest() async {
     if (!_voiceShieldEnabled || !_audioEnabled) return;
 
@@ -51,7 +50,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
         _transcript = "";
       });
 
-      // ✨ Fake typing effect
       for (int i = 0; i < testText.length; i++) {
         await Future.delayed(const Duration(milliseconds: 25));
         setState(() {
@@ -67,7 +65,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
         _loading = false;
       });
 
-      // 🚨 ALERT (SnackBar instead of popup)
       if (_risk >= 0.7) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -118,7 +115,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                   ],
                 ),
 
-                // 🔹 Status badge
+                // 🔹 Status
                 Align(
                   alignment: Alignment.center,
                   child: StatusBadge(protected: true),
@@ -132,7 +129,6 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                       const SosButton(),
                       const SizedBox(height: 8),
 
-                      // 🔥 MIC BUTTON (NO POPUP NOW)
                       IconButton(
                         onPressed: _runVoiceShieldTest,
                         icon: Icon(
@@ -191,7 +187,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
 
                 const SizedBox(height: 20),
 
-                // 🔥 VOICESHIELD OUTPUT
+                // 🔥 AI OUTPUT
                 if (_voiceShieldEnabled) ...[
                   Text(
                     'VoiceShield Analysis',
@@ -245,13 +241,16 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
 
                 const SizedBox(height: 12),
 
+                // ✅ FINAL FIXED BUTTON
                 Center(
                   child: QuickActionCard(
-                    label: 'Switch to SMS Mode',
-                    icon: Icons.cloud,
+                    label: 'Live Call Analysis',
+                    icon: Icons.call,
                     wide: true,
-                    onTap: () =>
-                        Navigator.of(context).pushNamed(AppRoutes.settings),
+                    onTap: () {
+                      Navigator.of(context)
+                          .pushNamed('/live-call-analysis');
+                    },
                   ),
                 ),
 
