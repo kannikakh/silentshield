@@ -1,7 +1,7 @@
 def analyze_text(text: str):
     text = text.lower().strip()
 
-<<<<<<< HEAD
+
     # 🟢 SAFE WORDS (force 0)
     safe_words = ["hello", "hi", "hey"]
 
@@ -41,7 +41,7 @@ def analyze_text(text: str):
         "scamPatterns": [],
         "confidenceScore": 100
     }
-=======
+
     # ✅ correct indentation
     clean_text = text.replace(" ", "")
 
@@ -67,4 +67,4 @@ def analyze_text(text: str):
         return {"risk": 0.6, "label": "suspicious"}
     else:
         return {"risk": 0.1, "label": "safe"}
->>>>>>> 0962c39d993a101c159388a18ce3f8d16c3962f1
+
