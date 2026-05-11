@@ -37,6 +37,10 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
       "your account is blocked share otp",
       "you won a prize click link",
       "hello how are you",
+      "This is a beautiful morning",
+      "urgent update needed click here",
+      "Can you share your location",
+      "family dinner plans for tonight",
     ];
 
     samples.shuffle();
@@ -56,6 +60,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
       }
 
       final result = await AIService.analyzeText(testText);
+      if (!mounted) return;
 
       setState(() {
         _risk = result["risk"];
@@ -63,14 +68,21 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
         _loading = false;
       });
 
-      if (_risk >= 0.7) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.red,
-            content: Text("⚠️ Scam call detected!"),
-          ),
-        );
-      }
+      // if (_risk >= 0.7) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     const SnackBar(
+      //       backgroundColor: Colors.red,
+      //       content: Text("⚠️ Scam call detected!"),
+      //     ),
+      //   );
+      // } else {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     const SnackBar(
+      //       backgroundColor: Colors.green,
+      //       content: Text("✅ Call appears safe"),
+      //     ),
+      //   );
+      // }
     } catch (e) {
       setState(() => _loading = false);
 
@@ -246,8 +258,7 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
                     icon: Icons.call,
                     wide: true,
                     onTap: () {
-                      Navigator.of(context)
-                          .pushNamed('/live-call-analysis');
+                      Navigator.of(context).pushNamed('/live-call-analysis');
                     },
                   ),
                 ),
