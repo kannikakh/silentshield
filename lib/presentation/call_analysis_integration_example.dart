@@ -46,7 +46,10 @@ class _CallAnalysisIntegrationExampleState
     });
 
     try {
-      final analysis = await CallAnalysisService.analyzeCallTranscript(text);
+      final analysis = await CallAnalysisService.analyzeCallTranscript(
+  context,
+  text,
+);
 
       setState(() {
         _analysis = analysis;

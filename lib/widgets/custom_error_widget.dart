@@ -1,80 +1,137 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/svg.dart';
 
 import '../core/app_export.dart';
 import '../routes/app_routes.dart';
-
-// custom_error_widget.dart
 
 class CustomErrorWidget extends StatelessWidget {
   final FlutterErrorDetails? errorDetails;
   final String? errorMessage;
 
-  const CustomErrorWidget({super.key, this.errorDetails, this.errorMessage});
+  const CustomErrorWidget({
+    super.key,
+    this.errorDetails,
+    this.errorMessage,
+  });
 
   @override
   Widget build(BuildContext context) {
+
+    // ignore: unused_local_variable
     final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
+
+      backgroundColor: const Color(0xFFF8FAFC),
+
       body: SafeArea(
+
         child: Center(
+
           child: Padding(
+
             padding: const EdgeInsets.all(24.0),
+
             child: Column(
+
               mainAxisAlignment: MainAxisAlignment.center,
+
               crossAxisAlignment: CrossAxisAlignment.center,
+
               children: [
-                SvgPicture.asset(
-                  'assets/images/sad_face.svg',
-                  height: 42,
-                  width: 42,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Something went wrong",
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF262626),
+
+                // SOS ICON
+                Container(
+
+                  padding: const EdgeInsets.all(20),
+
+                  decoration: BoxDecoration(
+
+                    color: Colors.red.withOpacity(0.1),
+
+                    shape: BoxShape.circle,
+                  ),
+
+                  child: const Icon(
+                    Icons.emergency,
+                    color: Colors.red,
+                    size: 48,
                   ),
                 ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  child: const Text(
-                    'We encountered an unexpected error while processing your request.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF525252), // neutral-600
-                    ),
-                  ),
-                ),
+
                 const SizedBox(height: 24),
+
+                // TITLE
+                const Text(
+
+                  "Emergency Service Activated",
+
+                  textAlign: TextAlign.center,
+
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // DESCRIPTION
+                const Text(
+
+                  "Your SOS request is being processed.\nEmergency contacts and services will be notified shortly.",
+
+                  textAlign: TextAlign.center,
+
+                  style: TextStyle(
+                    fontSize: 16,
+                    height: 1.5,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // LOADING INDICATOR
+                const CircularProgressIndicator(),
+
+                const SizedBox(height: 40),
+
+                // BUTTON
                 ElevatedButton.icon(
+
                   onPressed: () {
-                    bool canBeBack = Navigator.canPop(context);
-                    if (canBeBack) {
-                      Navigator.of(context).pop();
-                    } else {
-                      Navigator.pushNamed(context, AppRoutes.initial);
-                    }
+
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      AppRoutes.initial,
+                      (route) => false,
+                    );
                   },
+
                   icon: const Icon(
-                    Icons.arrow_back,
+                    Icons.home,
                     size: 18,
                     color: Colors.white,
                   ),
-                  label: const Text('Back'),
+
+                  label: const Text(
+                    'Return Home',
+                  ),
+
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primaryColor,
+
+                    backgroundColor: Colors.red,
+
                     foregroundColor: Colors.white,
+
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
+                      horizontal: 20,
+                      vertical: 14,
                     ),
+
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),

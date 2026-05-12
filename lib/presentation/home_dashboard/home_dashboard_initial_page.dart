@@ -64,25 +64,19 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
 
       setState(() {
         _risk = result["risk"];
+
         _label = result["label"];
+
         _loading = false;
       });
 
-      // if (_risk >= 0.7) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     const SnackBar(
-      //       backgroundColor: Colors.red,
-      //       content: Text("⚠️ Scam call detected!"),
-      //     ),
-      //   );
-      // } else {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     const SnackBar(
-      //       backgroundColor: Colors.green,
-      //       content: Text("✅ Call appears safe"),
-      //     ),
-      //   );
-      // }
+      // ==============================
+      // SHOW ALERT IF HIGH RISK
+      // ==============================
+
+      if (_risk >= 0.7 && mounted) {
+        _showScamAlertDialog(transcript: testText, risk: _risk, label: _label);
+      }
     } catch (e) {
       setState(() => _loading = false);
 
@@ -90,6 +84,119 @@ class _HomeDashboardInitialPageState extends State<HomeDashboardInitialPage> {
         const SnackBar(content: Text("Error connecting to AI service")),
       );
     }
+  }
+
+  Future<void> _showScamAlertDialog({
+    required String transcript,
+    required double risk,
+    required String label,
+  }) async {
+    return showDialog(
+      context: context,
+
+      barrierDismissible: false,
+
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Colors.red),
+
+              SizedBox(width: 8),
+
+              Expanded(child: Text("Potential Scam Detected")),
+            ],
+          ),
+
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+
+            crossAxisAlignment: CrossAxisAlignment.start,
+
+            children: [
+              Text(
+                transcript,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+              ),
+
+              const SizedBox(height: 16),
+
+              Text(
+                "Risk Level: ${(risk * 100).toStringAsFixed(0)}%",
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text("Classification: ${label.toUpperCase()}"),
+            ],
+          ),
+
+          actions: [
+            // ==========================
+            // IGNORE
+            // ==========================
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+
+              child: const Text("Ignore"),
+            ),
+
+            // ==========================
+            // REPORT
+            // ==========================
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+
+              onPressed: () {
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Scam call reported successfully'),
+                  ),
+                );
+              },
+
+              icon: const Icon(Icons.report),
+
+              label: const Text("Report"),
+            ),
+
+            // ==========================
+            // NOTIFY
+            // ==========================
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+
+              onPressed: () {
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    backgroundColor: Colors.red,
+                    content: Text('Emergency contacts notified'),
+                  ),
+                );
+              },
+
+              icon: const Icon(Icons.notification_important),
+
+              label: const Text("Notify"),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

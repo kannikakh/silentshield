@@ -51,7 +51,11 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
 
   Future<void> _analyzeText(String text) async {
     try {
-      final analysis = await CallAnalysisService.analyzeCallTranscript(text);
+      final analysis = await CallAnalysisService.analyzeCallTranscript(
+        context,
+        text,
+      );
+
       setState(() {
         _latestAnalysis = analysis;
         _errorMessage = null;

@@ -1,158 +1,308 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../models/call_analysis_response.dart';
 import 'api_service.dart';
+import 'sos_service.dart';
 
 class CallAnalysisService {
-  /// Analyzes a call transcript and handles the complete flow
-  /// This is what you would call when you detect a call or have transcript text
+
+  /// ==============================
+  /// Analyze Call Transcript
+  /// ==============================
   static Future<CallAnalysisResponse> analyzeCallTranscript(
+    BuildContext context,
     String transcriptText,
   ) async {
-    try {
-      debugPrint('🔍 Starting call analysis for: "$transcriptText"');
-
-      // 1️⃣ Call the backend API
-      final analysis = await ApiService.analyzeCall(transcriptText);
-
-      // 2️⃣ Log the results
-      debugPrint('📊 Analysis Results:');
-      debugPrint('   - Risk Score: ${analysis.getRiskPercentage()}%');
-      debugPrint('   - Risk Level: ${analysis.getRiskLevel()}');
-      debugPrint('   - Is Scam: ${analysis.isScamLikely()}');
-      debugPrint('   - Confidence: ${analysis.confidenceScore}%');
-
-      // 3️⃣ Return the analysis for UI to display
-      return analysis;
-    } catch (e) {
-      debugPrint('❌ Analysis failed: $e');
-      rethrow;
-    }
-  }
-
-  /// Helper to determine UI color based on risk
-  /// Use this for the risk meter color
-  static Color getRiskColor(double risk) {
-    if (risk <= 0.3) {
-      return const Color(0xFF00C853); // Green - Safe
-    } else if (risk <= 0.7) {
-      return const Color(0xFFFFA500); // Orange - Suspicious
-    } else {
-      return const Color(0xFFD32F2F); // Red - Scam
-    }
-  }
-
-  /// Helper to get emoji based on risk
-  static String getRiskEmoji(double risk) {
-    if (risk <= 0.3) {
-      return '✅';
-    } else if (risk <= 0.7) {
-      return '⚠️';
-    } else {
-      return '🚨';
-    }
-  }
-}
-
-// Example usage in a widget:
-/*
-class ExampleUsage extends StatefulWidget {
-  @override
-  State<ExampleUsage> createState() => _ExampleUsageState();
-}
-
-class _ExampleUsageState extends State<ExampleUsage> {
-  CallAnalysisResponse? _analysis;
-  bool _isLoading = false;
-  String? _error;
-
-  void _analyzeCallText(String text) async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
 
     try {
-      final analysis = await CallAnalysisService.analyzeCallTranscript(text);
-      setState(() {
-        _analysis = analysis;
-        _isLoading = false;
-      });
 
-      // Show alert if scam detected
-      if (analysis.isScamLikely()) {
-        _showScamAlert(analysis);
+      debugPrint('🔍 Starting call analysis...');
+      debugPrint('📝 Transcript: $transcriptText');
+
+      // ==============================
+      // CALL BACKEND
+      // ==============================
+
+      final analysis = await ApiService
+          .analyzeCall(transcriptText)
+          .timeout(const Duration(seconds: 5));
+
+      // ==============================
+      // LOG RESULTS
+      // ==============================
+
+      debugPrint('📊 Analysis Results');
+      debugPrint('Risk Score: ${analysis.getRiskPercentage()}%');
+      debugPrint('Risk Level: ${analysis.getRiskLevel()}');
+      debugPrint('Is Scam: ${analysis.isScamLikely()}');
+      debugPrint('Confidence: ${analysis.confidenceScore ?? 0}%');
+
+      // ==============================
+      // SHOW ALERT IF HIGH RISK
+      // ==============================
+
+      if (analysis.risk >= 0.75) {
+
+        await showScamAlertDialog(
+          context,
+          transcriptText,
+          analysis,
+        );
       }
-    } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}')),
+
+      return analysis;
+
+    } catch (e, s) {
+
+      debugPrint('❌ Analysis failed: $e');
+
+      debugPrintStack(stackTrace: s);
+
+      // SAFE FALLBACK
+      return CallAnalysisResponse(
+        transcript: transcriptText,
+        risk: 0.0,
+        scamPatterns: [],
+        confidenceScore: 0,
       );
     }
   }
 
-  void _showScamAlert(CallAnalysisResponse analysis) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Text(CallAnalysisService.getRiskEmoji(analysis.risk)),
-            const SizedBox(width: 8),
-            Text(analysis.getRiskLevel()),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Risk Score: ${analysis.getRiskPercentage()}%',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            if (analysis.scamPatterns != null)
-              ...analysis.scamPatterns!
-                  .map((p) => Text('• $p'))
-                  .toList(),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Dismiss'),
-          ),
-        ],
-      ),
-    );
+  /// ==============================
+  /// Risk Color
+  /// ==============================
+  static Color getRiskColor(double risk) {
+
+    if (risk <= 0.3) {
+
+      return const Color(0xFF00C853);
+
+    } else if (risk <= 0.7) {
+
+      return const Color(0xFFFFA500);
+
+    } else {
+
+      return const Color(0xFFD32F2F);
+    }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Column(
-          children: [
-            ElevatedButton(
-              onPressed: () => _analyzeCallText(
-                'Send your OTP now or your account will be blocked',
+  /// ==============================
+  /// Risk Emoji
+  /// ==============================
+  static String getRiskEmoji(double risk) {
+
+    if (risk <= 0.3) {
+
+      return '✅';
+
+    } else if (risk <= 0.7) {
+
+      return '⚠️';
+
+    } else {
+
+      return '🚨';
+    }
+  }
+
+  /// ==============================
+  /// Report Scam Call
+  /// ==============================
+  static Future<void> reportScamCall({
+    required String transcript,
+    required double risk,
+  }) async {
+
+    try {
+
+      await FirebaseFirestore.instance
+          .collection('reported_calls')
+          .add({
+
+        'transcript': transcript,
+
+        'risk': risk,
+
+        'reportedAt': FieldValue.serverTimestamp(),
+
+        'status': 'reported',
+      });
+
+      debugPrint('✅ Scam call reported');
+
+    } catch (e) {
+
+      debugPrint('❌ Report failed: $e');
+    }
+  }
+
+  /// ==============================
+  /// Scam Alert Dialog
+  /// ==============================
+  static Future<void> showScamAlertDialog(
+    BuildContext context,
+    String transcript,
+    CallAnalysisResponse analysis,
+  ) async {
+
+    return showDialog(
+
+      context: context,
+
+      barrierDismissible: false,
+
+      builder: (context) {
+
+        return AlertDialog(
+
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+
+          title: Row(
+            children: const [
+
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.red,
               ),
-              child: const Text('Analyze Sample Scam Text'),
-            ),
-            const SizedBox(height: 20),
-            if (_isLoading) const CircularProgressIndicator(),
-            if (_analysis != null) ...[
-              Text('Risk: ${_analysis!.getRiskPercentage()}%'),
-              Text('Level: ${_analysis!.getRiskLevel()}'),
-              Text('Is Scam: ${_analysis!.isScamLikely()}'),
+
+              SizedBox(width: 8),
+
+              Expanded(
+                child: Text(
+                  "Potential Scam Detected",
+                ),
+              ),
             ],
-            if (_error != null) Text('Error: $_error'),
+          ),
+
+          content: Column(
+
+            mainAxisSize: MainAxisSize.min,
+
+            crossAxisAlignment: CrossAxisAlignment.start,
+
+            children: [
+
+              const Text(
+                "This call appears suspicious.",
+              ),
+
+              const SizedBox(height: 12),
+
+              Text(
+                "Risk Level: ${analysis.getRiskLevel()}",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
+              Text(
+                "Confidence: ${(analysis.confidenceScore ?? 0).toStringAsFixed(1)}%",
+              ),
+            ],
+          ),
+
+          actions: [
+
+            /// IGNORE
+            TextButton(
+
+              onPressed: () {
+
+                Navigator.pop(context);
+
+              },
+
+              child: const Text(
+                "Ignore",
+              ),
+            ),
+
+            /// REPORT
+            ElevatedButton.icon(
+
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+
+              onPressed: () async {
+
+                Navigator.pop(context);
+
+                await reportScamCall(
+                  transcript: transcript,
+                  risk: analysis.risk,
+                );
+
+                if (context.mounted) {
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+
+                    const SnackBar(
+                      content: Text(
+                        'Scam call reported successfully',
+                      ),
+                    ),
+                  );
+                }
+              },
+
+              icon: const Icon(Icons.report),
+
+              label: const Text("Report"),
+            ),
+
+            /// NOTIFY
+            ElevatedButton.icon(
+
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+              ),
+
+              onPressed: () async {
+
+                Navigator.pop(context);
+
+                try {
+
+                  await SosService().sendSos();
+
+                  if (context.mounted) {
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+
+                      const SnackBar(
+                        content: Text(
+                          'Emergency contacts notified',
+                        ),
+                      ),
+                    );
+                  }
+
+                } catch (e) {
+
+                  debugPrint('❌ SOS failed: $e');
+                }
+              },
+
+              icon: const Icon(
+                Icons.notification_important,
+              ),
+
+              label: const Text(
+                "Notify",
+              ),
+            ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
-*/

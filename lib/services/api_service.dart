@@ -29,7 +29,7 @@ class ApiService {
             body: jsonEncode({"text": text}),
           )
           .timeout(
-            const Duration(seconds: 30),
+            const Duration(seconds: 5),
             onTimeout: () => throw Exception(
               'API timeout - Backend might be down or network is slow',
             ),
