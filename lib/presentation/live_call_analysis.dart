@@ -25,6 +25,7 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
 
     // Set up callbacks
     _speechService.onTextRecognized = (text) {
+      if (!mounted) return;
       setState(() {
         _recognizedText = text;
       });
@@ -36,12 +37,14 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
     };
 
     _speechService.onListeningStateChanged = (isListening) {
+      if (!mounted) return;
       setState(() {
         _isListening = isListening;
       });
     };
 
     _speechService.onError = (error) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = error;
       });
@@ -51,11 +54,16 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
 
   Future<void> _analyzeText(String text) async {
     try {
+<<<<<<< HEAD
       final analysis = await CallAnalysisService.analyzeCallTranscript(
         context,
         text,
       );
 
+=======
+      final analysis = await CallAnalysisService.analyzeCallTranscript(text);
+      if (!mounted) return;
+>>>>>>> 8c047fc (updated backend)
       setState(() {
         _latestAnalysis = analysis;
         _errorMessage = null;
@@ -67,6 +75,11 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
       }
     } catch (e) {
       print('❌ Analysis error: $e');
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.toString();
+      });
+      _showSnackBar('Analysis error: ${e.toString()}', Colors.red);
     }
   }
 
@@ -175,7 +188,11 @@ class _LiveCallAnalysisState extends State<LiveCallAnalysis> {
 
   @override
   void dispose() {
+    // Cancel speech service and clear callbacks to avoid late callbacks
     _speechService.cancel();
+    _speechService.onTextRecognized = null;
+    _speechService.onListeningStateChanged = null;
+    _speechService.onError = null;
     super.dispose();
   }
 
